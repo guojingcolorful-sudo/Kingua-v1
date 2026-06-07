@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Outfit:wght@300;400;600;700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Custom cybernetic text shadow */
+.neon-glow {
+  text-shadow: 0 0 12px rgba(212, 255, 0, 0.45);
+}
+
+.box-glow {
+  box-shadow: 0 0 35px rgba(212, 255, 0, 0.12);
+}
+
+/* Custom scrollbar hider */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

@@ -1,0 +1,6 @@
+{
+  "name": "Lingua AIOS",
+  "description": "极具未来科技感的脉冲式无痛沉浸英语学习破译中枢(赛博版)",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
