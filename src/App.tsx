@@ -37,11 +37,82 @@ import {
   ChevronDown,
   Check,
   Inbox,
-  Download
+  Download,
+  Image as ImageIcon,
+  MoreHorizontal,
+  Mic,
+  ChevronRight,
+  FileText,
+  Share2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Lesson, Sentence, SyntaxBlock, Vocabulary, UserStats, UserSettings } from "./types";
 import { DEFAULT_LESSONS, DEFAULT_VOCABULARIES } from "./data";
+
+// Syllable syllable splitting definitions for vocabulary memorization and phonetic spelling
+const SYLLABLE_DICT: Record<string, string> = {
+  graduated: "grad·u·at·ed",
+  obvious: "ob·vi·ous",
+  commencement: "com·mence·ment",
+  satisfying: "sat·is·fy·ing",
+  molecule: "mol·e·cule",
+  motivation: "mo·ti·va·tion",
+  surprise: "sur·prise",
+  behavior: "be·hav·ior",
+  attractive: "at·trac·tive",
+  college: "col·lege",
+  connecting: "con·nect·ing",
+  dopamine: "do·pa·mine",
+  graduation: "grad·u·a·tion",
+  obviousness: "ob·vi·ous·ness",
+  unsatisfying: "un·sat·is·fy·ing",
+  connect: "con·nect",
+  stories: "sto·ries",
+  story: "sto·ry",
+  today: "to·day",
+  closest: "clos·est",
+  truth: "truth",
+  whenever: "when·ev·er"
+};
+
+export function splitWordIntoSyllables(word: string): string {
+  if (!word) return "";
+  const clean = word.trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (SYLLABLE_DICT[clean]) {
+    return SYLLABLE_DICT[clean];
+  }
+  if (clean.length <= 4) return clean;
+  
+  const syllables: string[] = [];
+  const isVowel = (char: string) => "aeiouy".includes(char);
+  
+  let i = 0;
+  let currentChunk = "";
+  while (i < clean.length) {
+    currentChunk += clean[i];
+    if (isVowel(clean[i]) && i + 1 < clean.length && !isVowel(clean[i+1])) {
+      if (i + 2 < clean.length && !isVowel(clean[i+2])) {
+        currentChunk += clean[i+1];
+        syllables.push(currentChunk);
+        currentChunk = "";
+        i += 2;
+        continue;
+      } else {
+        syllables.push(currentChunk);
+        currentChunk = "";
+        i += 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  if (currentChunk) {
+    syllables.push(currentChunk);
+  }
+  
+  const result = syllables.filter(Boolean).join("·");
+  return result || clean;
+}
 
 // Cybernetic synth audio-effects helper using Web Audio API to match the "physics physical tactile click" requirement in the PRD
 function playSynthBeep(type: 'click' | 'success' | 'save' | 'glitch' | 'block' | 'roulette') {
@@ -203,7 +274,10 @@ export default function App() {
 
   const [favorites, setFavorites] = useState<string[]>(() => {
     const saved = localStorage.getItem("lingua_favorites_v62");
-    return saved ? JSON.parse(saved) : ["graduated", "obvious"];
+    return saved ? JSON.parse(saved) : [
+      "Today I want to tell you three stories.",
+      "Dopamine is a molecule of motivation and surprise."
+    ];
   });
 
   const [stats, setStats] = useState<UserStats>(() => {
@@ -214,6 +288,18 @@ export default function App() {
       wordCounts: { green: 4, yellow: 18, red: 10 }
     };
   });
+
+  const [registrationDate] = useState<number>(() => {
+    const saved = localStorage.getItem("lingua_registration_date_v62");
+    if (saved) return parseInt(saved);
+    const now = Date.now();
+    localStorage.setItem("lingua_registration_date_v62", now.toString());
+    return now;
+  });
+
+  const isNewUserWithinOneMonth = () => {
+    return (Date.now() - registrationDate) < 30 * 24 * 60 * 60 * 1000;
+  };
 
   const [settings, setSettings] = useState<UserSettings>(() => {
     const saved = localStorage.getItem("lingua_settings_v62");
@@ -227,6 +313,12 @@ export default function App() {
   const [isWechatBound, setIsWechatBound] = useState<boolean>(() => {
     return localStorage.getItem("lingua_wechat_bound") === "true";
   });
+
+  const [wechatNickname, setWechatNickname] = useState<string>(() => {
+    return localStorage.getItem("lingua_wechat_nickname") || "声波旅客_62";
+  });
+  const [bindPhoneChecked, setBindPhoneChecked] = useState<boolean>(false);
+  const [loginRequiredReason, setLoginRequiredReason] = useState<string>("");
 
   // Active navigation states
   const [currentTab, setCurrentTab] = useState<'listen' | 'vault' | 'system'>('listen');
@@ -249,6 +341,120 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzingStep, setAnalyzingStep] = useState(0);
   const [apiErrorMessage, setApiErrorMessage] = useState<string | null>(null);
+
+  // Local, customizable English voice and speed speech engine shadowing the global text to speech function
+  const speakTextEn = (text: string, forceRate?: number) => {
+    try {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      
+      // Compute speed
+      let rate = 0.95;
+      if (forceRate) {
+        rate = forceRate;
+      } else {
+        if (ttsSpeed === 'slow') rate = 0.7;
+        else if (ttsSpeed === 'fast') rate = 1.25;
+      }
+      utterance.rate = rate;
+
+      // Set voice
+      if (ttsVoice !== "default" && availableVoices.length > 0) {
+        const voiceObj = availableVoices.find(v => v.name === ttsVoice);
+        if (voiceObj) {
+          utterance.voice = voiceObj;
+        }
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("TTS initialization failed on this platform.", e);
+    }
+  };
+
+  // Syllables hyphenation division tool for pronunciation-friendly memorization
+  const getSyllables = (word: string): string => {
+    const clean = word.toLowerCase().trim();
+    if (clean === "obvious") return "ob • vi • ous";
+    if (clean === "commencement") return "com • mence • ment";
+    if (clean === "graduated") return "grad • u • at • ed";
+    if (clean === "destined") return "des • tined";
+    if (clean === "intuition") return "in • tu • i • tion";
+    if (clean === "intellectual") return "in • tel • lec • tu • al";
+    if (clean === "watermarked") return "wa • ter • marked";
+    if (clean === "vocabulary") return "vo • cab • u • lar • y";
+    if (clean === "immersion") return "im • mer • sion";
+    if (clean === "synchronize") return "syn • chro • nize";
+    if (clean === "cybernetic") return "cy • ber • net • ic";
+    
+    // Fallback syllable structure parser
+    const vowels = "aeiouy";
+    const matches = clean.match(/[aeiouy]{1,2}/g);
+    if (!matches || matches.length <= 1) return clean;
+    
+    try {
+      const parts: string[] = [];
+      let currentPart = "";
+      for (let i = 0; i < clean.length; i++) {
+        currentPart += clean[i];
+        const char = clean[i];
+        if (vowels.includes(char) && i < clean.length - 1 && parts.length < 3) {
+          if (!vowels.includes(clean[i+1]) && i + 2 < clean.length && vowels.includes(clean[i+2])) {
+            parts.push(currentPart);
+            currentPart = "";
+          }
+        }
+      }
+      if (currentPart) parts.push(currentPart);
+      if (parts.length > 1) return parts.join(" • ");
+    } catch (e) {}
+    
+    return clean.replace(/([bcdfghjklmnpqrstvwxz])([aeiouy])/g, "$1 • $2").replace(/•\s*•/g, "•");
+  };
+
+  // Check import resource count limit under different tiers
+  const checkImportLimit = (): boolean => {
+    if (!isPremiumUser && lessons.length >= 3) {
+      setApiErrorMessage("普通免费版最多导入 3 个音视频/电子书资源。请激活 CYBER 极客会员以享受无限导入、全功能离线词典和 AI 精细分析特权！✨");
+      setShowPaymentModal(true);
+      return false;
+    }
+    return true;
+  };
+
+  // AI grammar analysis and automatic syllable parsing animation loader
+  const triggerAiGrammarAnalysis = (sentenceId: string) => {
+    playSynthBeep('click');
+    if (!isWechatBound) {
+      setApiErrorMessage("请先关联登录微信以自动同步和存储您的深度句法分析学习档案 🔐");
+      setShowLoginModal(true);
+      return;
+    }
+    if (!isPremiumUser) {
+      setApiErrorMessage("很抱歉，普通试用版无权进行 AI 语法和精细句法标注分析。开通会员即可立享专属深度引擎破译！🌌");
+      setShowPaymentModal(true);
+      return;
+    }
+
+    setIsAiAnalyzing(true);
+    setAiAnalyzingStepStr("🧙‍♂️ AI 语法引擎：正在唤醒深度神经网络分流解构器...");
+    
+    setTimeout(() => {
+      setAiAnalyzingStepStr("🔬 词性标记与句法剖析：正在精细解析并标识主谓宾修饰成分...");
+    }, 600);
+
+    setTimeout(() => {
+      setAiAnalyzingStepStr("⚡ 语篇对齐与翻译映射：正在生成多维度认知图层胶囊...");
+    }, 1200);
+
+    setTimeout(() => {
+      setIsAiAnalyzing(false);
+      setDeconstructSentenceId(sentenceId);
+      setSelectedPillIndex(null);
+    }, 1800);
+  };
 
   // New States for Universal Extractor Grid & EPUB Reader
   const [activeImportTab, setActiveImportTab] = useState<'url' | 'media' | 'epub'>('url');
@@ -285,9 +491,11 @@ export default function App() {
   const [wipeHoldProgress, setWipeHoldProgress] = useState(0);
   const [isHoldingWipe, setIsHoldingWipe] = useState(false);
   const wipeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const holdTimerRef = useRef<any>(null);
 
   // Filter vault items
   const [vaultFilter, setVaultFilter] = useState<'all' | 'green' | 'yellow' | 'red'>('all');
+  const [vaultMainCategory, setVaultMainCategory] = useState<'words' | 'phrases' | 'sentences'>('words');
 
   // Multi-particle state for dopamine reward explosion
   const [showRewardParticles, setShowRewardParticles] = useState(false);
@@ -302,14 +510,69 @@ export default function App() {
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [codeCountdown, setCodeCountdown] = useState(0);
 
+  // Advanced speech states
+  const [ttsSpeed, setTtsSpeed] = useState<'slow' | 'medium' | 'fast'>('medium');
+  const [ttsVoice, setTtsVoice] = useState<string>("default");
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // AI grammar parsing simulation state
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
+  const [aiAnalyzingStepStr, setAiAnalyzingStepStr] = useState("");
+
+  // Social sharing contextual action states
+  const [activeActionsLessonId, setActiveActionsLessonId] = useState<string | null>(null);
+  const [showShareModal, setShowShareModal] = useState<'speak' | 'doc' | null>(null);
+  const [showSubtitleShareModal, setShowSubtitleShareModal] = useState<boolean>(false);
+  const [sharedSubtitleText, setSharedSubtitleText] = useState<string>("");
+  const [sharedSubtitleTranslation, setSharedSubtitleTranslation] = useState<string>("");
+
+  // Last learned item tracking
+  const [lastLearnedItem, setLastLearnedItem] = useState<{
+    type: 'podcast' | 'video' | 'epub' | 'word';
+    title: string;
+    id: string;
+  } | null>(() => {
+    const saved = localStorage.getItem("lingua_last_learned_v62");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      type: 'podcast',
+      title: "Steve Jobs 斯坦福毕业典礼致辞 Special Ed.",
+      id: "jobs-commencement"
+    };
+  });
+
   // Review & Subscription plans
   const [activeReviewPlan, setActiveReviewPlan] = useState<'ebbinghaus' | 'flash' | 'deep'>('ebbinghaus');
   const [reviewWordsDailyTarget, setReviewWordsDailyTarget] = useState(10);
   const [reviewWordsCompletedToday, setReviewWordsCompletedToday] = useState(4);
-  const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [isPremiumUser, setIsPremiumUser] = useState<boolean>(() => {
+    return localStorage.getItem("lingua_premium_user") === "true";
+  });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedPaymentTier, setSelectedPaymentTier] = useState<'monthly' | 'lifetime'>('monthly');
+  const [selectedPaymentTier, setSelectedPaymentTier] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
   const [paymentStep, setPaymentStep] = useState<'select' | 'qrcode' | 'success'>('select');
+
+  // Multi-subtitles and player states
+  const [showEnglishSubtitles, setShowEnglishSubtitles] = useState(true);
+  const [showChineseSubtitles, setShowChineseSubtitles] = useState(true);
+  const [isVideoCollapsed, setIsVideoCollapsed] = useState(false);
+  const [swipedLessonId, setSwipedLessonId] = useState<string | null>(null);
+  const [swipedVocabId, setSwipedVocabId] = useState<string | null>(null);
+  const [swipedSentenceIdx, setSwipedSentenceIdx] = useState<number | null>(null);
+
+  // Flashcard Space states
+  const [showFlashcardSpace, setShowFlashcardSpace] = useState(false);
+  const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
+  const [isCardRevealed, setIsCardRevealed] = useState(false);
+
+  // Reset card reveal whenever index changes
+  useEffect(() => {
+    setIsCardRevealed(false);
+  }, [currentFlashcardIndex]);
 
   // Save changes to localStorage
   useEffect(() => {
@@ -324,6 +587,107 @@ export default function App() {
     localStorage.setItem("lingua_favorites_v62", JSON.stringify(favorites));
   }, [favorites]);
 
+  // Construct dynamic review queue from collected words and favorite sentences
+  const getReviewQueue = () => {
+    const queue: Array<{
+      type: 'word' | 'sentence';
+      id: string;
+      word?: string;
+      phonetic?: string;
+      partOfSpeech?: string;
+      definitionCn?: string;
+      example?: string;
+      text?: string;
+      translationCn?: string;
+    }> = [];
+    
+    // Add collected vocabularies
+    vocabularies.forEach(v => {
+      queue.push({
+        type: 'word',
+        id: `word-${v.id}`,
+        word: v.word,
+        phonetic: v.phonetic,
+        partOfSpeech: v.partOfSpeech,
+        definitionCn: v.definitionCn,
+        example: v.example
+      });
+    });
+    
+    // Add favorite sentences
+    favorites.forEach((favText, idx) => {
+      let transl = "经典高光金句听力影子复习";
+      for (const l of lessons) {
+        const matchingSent = l.sentences.find(s => s.text === favText);
+        if (matchingSent) {
+          transl = (matchingSent as any).translationCn || matchingSent.translation;
+          break;
+        }
+      }
+      queue.push({
+        type: 'sentence',
+        id: `fav-${idx}`,
+        text: favText,
+        translationCn: transl
+      });
+    });
+    
+    // Fallback deck so user is never left empty-handed
+    if (queue.length === 0) {
+      queue.push({
+        type: 'word',
+        id: 'fallback-1',
+        word: 'commencement',
+        phonetic: "kə'mensmənt",
+        partOfSpeech: 'noun',
+        definitionCn: 'n. 毕业典礼；开始',
+        example: 'at your commencement from one of the finest universities...'
+      });
+      queue.push({
+        type: 'word',
+        id: 'fallback-2',
+        word: 'motivation',
+        phonetic: "ˌməʊtɪ'veɪʃn",
+        partOfSpeech: 'noun',
+        definitionCn: 'n. 动机；积极性',
+        example: 'Dopamine is a molecule of motivation and surprise.'
+      });
+      queue.push({
+        type: 'sentence',
+        id: 'fallback-3',
+        text: "Today I want to tell you three stories. That's it. No big deal. Just three stories.",
+        translationCn: "今天我想和你们说三个故事。就这些，没什么大不了。只是三个故事。"
+      });
+    }
+    
+    return queue;
+  };
+
+  const handleRecallStatus = (status: 'forget' | 'vague' | 'remember') => {
+    playSynthBeep(status === 'remember' ? 'success' : 'click');
+    if (status === 'remember') {
+      setStats(prev => ({
+        ...prev,
+        totalTokens: prev.totalTokens + 1,
+        wordCounts: {
+          ...prev.wordCounts,
+          green: prev.wordCounts.green + 1
+        }
+      }));
+    }
+    
+    const deck = getReviewQueue();
+    if (currentFlashcardIndex < deck.length - 1) {
+      setCurrentFlashcardIndex(prev => prev + 1);
+    } else {
+      // Completed queue!
+      playSynthBeep('success');
+      setShowRewardParticles(true);
+      setTimeout(() => setShowRewardParticles(false), 2000);
+      setCurrentFlashcardIndex(deck.length); // Moves to completed view screen!
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem("lingua_stats_v62", JSON.stringify(stats));
   }, [stats]);
@@ -331,6 +695,26 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("lingua_settings_v62", JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem("lingua_premium_user", isPremiumUser ? "true" : "false");
+  }, [isPremiumUser]);
+
+  // Load synthesis voices on mount
+  useEffect(() => {
+    const loadVoices = () => {
+      try {
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+          const voices = window.speechSynthesis.getVoices();
+          setAvailableVoices(voices.filter(v => v.lang.startsWith("en-") || v.lang.startsWith("en_")));
+        }
+      } catch (e) {}
+    };
+    loadVoices();
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
 
   // SMS Verification countdown timer effect
   useEffect(() => {
@@ -351,14 +735,30 @@ export default function App() {
     if (isPlaying && activeLessonId) {
       const lesson = lessons.find(l => l.id === activeLessonId);
       if (lesson) {
+        // Enforce 1-minute limit for newly imported items on free level
+        const isImported = !DEFAULT_LESSONS.some(dl => dl.id === activeLessonId);
+        if (isImported && !isPremiumUser && currentSentenceIndex * 6.5 >= 60) {
+          setIsPlaying(false);
+          setApiErrorMessage("普通免费用户试用额度已达：新导入的学习内容每次仅可研读前 1 分钟。订阅极客会员立刻激活整篇、无任何播放流阻断特权！🍿");
+          setShowPaymentModal(true);
+          return;
+        }
+
         interval = setInterval(() => {
           if (!isLoopingSentence) {
             setCurrentSentenceIndex((prev) => {
+              const targetIdx = prev + 1;
+              if (isImported && !isPremiumUser && targetIdx * 6.5 >= 60) {
+                setIsPlaying(false);
+                setApiErrorMessage("普通免费用户试用额度已达：新导入的学习内容每次仅可研读前 1 分钟。订阅极客会员立刻激活整篇、无任何播放流阻断特权！🍿");
+                setShowPaymentModal(true);
+                return prev;
+              }
+
               if (prev < lesson.sentences.length - 1) {
                 // Play spoken synthesis for next naturally arriving sentence if Zen allows, or simulate
-                const nextId = prev + 1;
-                speakTextEn(lesson.sentences[nextId].text);
-                return nextId;
+                speakTextEn(lesson.sentences[targetIdx].text);
+                return targetIdx;
               } else {
                 setIsPlaying(false);
                 // Trigger Target Neutralized celebration!
@@ -377,7 +777,7 @@ export default function App() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isPlaying, activeLessonId, currentSentenceIndex, isLoopingSentence]);
+  }, [isPlaying, activeLessonId, currentSentenceIndex, isLoopingSentence, isPremiumUser]);
 
   // Audio simulation timer for EPUB book reading aloud sentence by sentence
   useEffect(() => {
@@ -413,9 +813,31 @@ export default function App() {
   // Handle active lesson selection synthesis trigger
   const selectActiveLesson = (id: string) => {
     playSynthBeep('click');
+
+    // Rule: Free users can only study the first 3 imported learning materials
+    const isImported = !DEFAULT_LESSONS.some(dl => dl.id === id);
+    if (isImported && !isPremiumUser) {
+      const importedLessons = lessons.filter(l => !DEFAULT_LESSONS.some(dl => dl.id === l.id));
+      const importedIndex = importedLessons.findIndex(l => l.id === id);
+      if (importedIndex > 2) {
+        setApiErrorMessage("您当前使用的是免费体验版：限学习前 3 个您导入的学习资料。订阅极客会员立刻激活整篇、无限量资源极速导入与专精研读！💎");
+        setShowPaymentModal(true);
+        return;
+      }
+    }
+
     setActiveLessonId(id);
     setSelectedBookSentenceId(null);
     const lesson = lessons.find(l => l.id === id);
+    if (lesson) {
+      const learned = {
+        type: lesson.contentType as any,
+        title: lesson.title,
+        id: lesson.id
+      };
+      setLastLearnedItem(learned);
+      localStorage.setItem("lingua_last_learned_v62", JSON.stringify(learned));
+    }
     if (lesson?.contentType === "epub") {
       // E-book opened: FIRST custom quiet reading layout, do NOT autoplay TTS!
       setIsPlaying(false);
@@ -1102,7 +1524,7 @@ export default function App() {
   };
 
   // Export Subtitles function to generate SRT files based on current state parameters
-  const exportSubtitles = (includeChinese: boolean) => {
+  const exportSubtitles = (mode: 'bilingual' | 'chinese' | 'english' | boolean) => {
     if (!activeLessonId) return;
     const lesson = lessons.find(l => l.id === activeLessonId);
     if (!lesson) return;
@@ -1123,9 +1545,16 @@ export default function App() {
       
       srtText += `${idx + 1}\n`;
       srtText += `${formatTime(startSec)} --> ${formatTime(endSec)}\n`;
-      srtText += `${sentence.text}\n`;
-      if (includeChinese) {
-        srtText += `${sentence.translationCn}\n`;
+      
+      const showCn = mode === 'bilingual' || mode === 'chinese' || mode === true;
+      const showEn = mode === 'bilingual' || mode === 'english' || mode === false || mode === true;
+      
+      if (showEn) {
+        srtText += `${sentence.text}\n`;
+      }
+      if (showCn) {
+        const cnText = (sentence as any).translationCn || sentence.translation;
+        srtText += `${cnText}\n`;
       }
       srtText += "\n";
     });
@@ -1134,7 +1563,13 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${lesson.title}_${includeChinese ? "bilingual" : "english"}.srt`;
+    
+    let suffix = "subtitles";
+    if (mode === 'bilingual' || mode === true) suffix = "bilingual";
+    if (mode === 'chinese') suffix = "chinese";
+    if (mode === 'english' || mode === false) suffix = "english";
+    
+    link.download = `${lesson.title}_${suffix}.srt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1143,6 +1578,11 @@ export default function App() {
 
   // Filter lists inside Vault
   const filteredVocabCollection = vocabularies.filter(v => {
+    const isPhrase = v.word.trim().includes(" ");
+    if (vaultMainCategory === 'words' && isPhrase) return false;
+    if (vaultMainCategory === 'phrases' && !isPhrase) return false;
+    if (vaultMainCategory === 'sentences') return false;
+    
     if (vaultFilter === 'all') return true;
     return v.color === vaultFilter;
   });
@@ -1490,235 +1930,150 @@ export default function App() {
                               ← 上一页
                             </button>
 
-                            {/* Audio Play Aloud master play button */}
-                            <button 
-                              onClick={() => {
-                                playSynthBeep('success');
-                                const currentlyPlaying = !isBookPlaying;
-                                setIsBookPlaying(currentlyPlaying);
-                                if (currentlyPlaying) {
-                                  // start playing first sentence of the page
-                                  const startIdx = activeBookPage * sentencesPerPage;
-                                  setActiveBookSentenceIdx(startIdx);
-                                  setSelectedBookSentenceId(lesson.sentences[startIdx]?.id || null);
-                                  speakTextEn(lesson.sentences[startIdx]?.text || "");
-                                } else {
-                                  window.speechSynthesis.cancel();
-                                }
-                              }}
-                              className={`px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all ${isBookPlaying ? "bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)]" : "bg-white text-black font-sans"}`}
-                            >
-                              {isBookPlaying ? (
-                                <>
-                                  <Pause className="w-3.5 h-3.5 fill-black" /> 正在朗读整页...
-                                </>
-                              ) : (
-                                <>
-                                  <Play className="w-3.5 h-3.5 fill-black ml-0.5" /> 🔊 自动播放整页
-                                </>
-                              )}
-                            </button>
+                            {/* Audio Play Aloud ma                            {/* Space holder for clean viewport */}
+                            <div className="flex-1" />-black/60 border-white/15 text-zinc-400"}`}
+                                  title={showEnglishSubtitles ? "隐藏英文" : "显示英文"}
+                                >
+                                  英
+                                </button>
 
-                            <button 
-                              onClick={() => {
-                                if (activeBookPage < totalPages - 1) {
-                                  playSynthBeep('click');
-                                  setActiveBookPage(prev => prev + 1);
-                                  setActiveBookSentenceIdx(null);
-                                  setSelectedBookSentenceId(null);
-                                }
-                              }}
-                              disabled={activeBookPage === totalPages - 1}
-                              className="px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-bold disabled:opacity-20 active:scale-95 transition-transform font-sans"
-                            >
-                              下一页 →
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  // Non-epub lessons fall back to standard list layout
-                  return (
-                    <>
-                      {/* 1. Sticky Video Player Frame if showVideo is true */}
-                      {(() => {
-                        const isVideo = lesson.contentType === 'video';
-                        const showVideo = isVideo && !isVideoViewClosed;
-                        if (!showVideo) return null;
-                        
-                        return (
-                          <div className="w-full bg-[#000000] border-b border-white/10 shrink-0 relative flex flex-col justify-between" style={{ height: '220px' }}>
-                            <img 
-                              src={lesson.coverImage} 
-                              alt="Video Cover" 
-                              className="absolute inset-0 object-cover w-full h-full opacity-60 pointer-events-none filter brightness-75 contrast-125 select-none"
-                              referrerPolicy="no-referrer"
-                            />
-                            {/* Cybernetic Scanline scan-raster decoration */}
-                            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,rgba(0,0,0,0.85))] pointer-events-none" />
-                            <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_95%,rgba(18,16,16,0.3)_98%)] pointer-events-none" />
-                            <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
-
-                            {/* L3 Absolute video head controls */}
-                            <div className="relative pt-4 px-4 flex justify-between items-center z-10 shrink-0 select-none">
-                              <button 
-                                onClick={exitLessonView}
-                                className="w-9 h-9 rounded-full bg-black/60 hover:bg-neutral-900 border border-white/15 flex items-center justify-center text-white active:scale-90 transition-transform"
-                                title="返回书架"
-                              >
-                                <ChevronLeft className="w-5 h-5" />
-                              </button>
-
-                              <div className="bg-black/60 px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                                <span className="text-[10px] font-bold text-neutral-300 font-sans tracking-wide max-w-[124px] truncate">
-                                  {lesson.title}
-                                </span>
-                              </div>
-
-                              <div className="flex gap-2 relative">
-                                {/* Subtitle Exporter Button */}
+                                {/* 3. Toggle Chinese subtitles */}
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     playSynthBeep('click');
-                                    setExportDropdownOpen(prev => !prev);
+                                    setShowChineseSubtitles(!showChineseSubtitles);
                                   }}
-                                  className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all ${exportDropdownOpen ? "bg-[#D4FF00] border-[#D4FF00] text-black shadow-lg shadow-lime-950" : "bg-black/60 border-white/15 text-white hover:text-[#D4FF00]"}`}
-                                  title="导出字幕 Subtitle Exporter"
+                                  className={`w-7 h-7 text-[10px] font-black rounded-full flex items-center justify-center border transition-all ${showChineseSubtitles ? "bg-[#D4FF00] text-black border-[#D4FF00]" : "bg-black/60 border-white/15 text-zinc-400"}`}
+                                  title={showChineseSubtitles ? "隐藏中文" : "显示中文"}
                                 >
-                                  <Download className="w-4 h-4" />
+                                  中
                                 </button>
 
-                                {exportDropdownOpen && (
-                                  <div className="absolute right-0 top-11 bg-zinc-950 border border-white/10 p-1.5 rounded-xl z-50 flex flex-col gap-1 w-32 shadow-2xl animate-fade-in text-[10px]">
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        exportSubtitles(true);
-                                        setExportDropdownOpen(false);
-                                      }}
-                                      className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
-                                    >
-                                      <span>🀄 中英双语字幕</span>
-                                    </button>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        exportSubtitles(false);
-                                        setExportDropdownOpen(false);
-                                      }}
-                                      className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
-                                    >
-                                      <span>🇬🇧 纯英文字幕</span>
-                                    </button>
-                                  </div>
-                                )}
+                                <div className="relative">
+                                  {/* Subtitle Exporter Button */}
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      playSynthBeep('click');
+                                      setExportDropdownOpen(prev => !prev);
+                                    }}
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all backdrop-blur-sm ${exportDropdownOpen ? "bg-[#D4FF00] border-[#D4FF00] text-black shadow-lg" : "bg-black/60 border-white/15 text-white"}`}
+                                    title="导出字幕 Subtitle Exporter"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
 
-                                {/* Subtitle Font Size Cycle Toggle button */}
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    playSynthBeep('click');
-                                    setFontSizeFactor(prev => prev === 'md' ? 'lg' : prev === 'lg' ? 'xl' : 'md');
-                                  }}
-                                  className="w-9 h-9 rounded-full bg-black/60 border border-white/15 flex items-center justify-center text-white hover:text-[#D4FF00] active:scale-95 transition-all font-mono text-xs font-black"
-                                  title="调节字级 Subtitle Sizing"
-                                >
-                                  {fontSizeFactor === 'md' ? 'A' : fontSizeFactor === 'lg' ? 'AA' : 'AAA'}
-                                </button>
-
-                                {/* Subtitle Hidden/Visible (Zen Mode) button */}
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    playSynthBeep('click');
-                                    setIsZenMode(prev => !prev);
-                                  }}
-                                  className={`w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform border ${isZenMode ? "bg-amber-400 border-amber-400 text-black shadow-lg" : "bg-black/60 border-white/15 text-white hover:text-[#D4FF00]"}`}
-                                  title={isZenMode ? "开启全屏幕遮罩听音" : "显示中英对齐字幕"}
-                                >
-                                  {isZenMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
+                                  {exportDropdownOpen && (
+                                    <div className="absolute right-0 top-9 bg-zinc-950 border border-white/10 p-1.5 rounded-xl z-50 flex flex-col gap-1 w-32 shadow-2xl animate-fade-in text-[10px]">
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          exportSubtitles('bilingual');
+                                          setExportDropdownOpen(false);
+                                        }}
+                                        className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                      >
+                                        <span>🀄 中英双语字幕</span>
+                                      </button>
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          exportSubtitles('chinese');
+                                          setExportDropdownOpen(false);
+                                        }}
+                                        className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                      >
+                                        <span>🇨🇳 纯中文字幕</span>
+                                      </button>
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          exportSubtitles('english');
+                                          setExportDropdownOpen(false);
+                                        }}
+                                        className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                      >
+                                        <span>🇬🇧 纯英文字幕</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
 
                             {/* 2. Interactive Main Center play/pause overlay */}
-                            <div 
-                              onClick={() => {
-                                playSynthBeep('click');
-                                setIsPlaying(prev => !prev);
-                              }}
-                              className="relative flex-1 flex items-center justify-center cursor-pointer z-10 group"
-                            >
-                              <div className="w-12 h-12 rounded-full bg-black/55 hover:bg-[#D4FF00] hover:text-black border border-white/15 flex items-center justify-center backdrop-blur-sm transition-all duration-300 transform group-hover:scale-110 active:scale-90 shadow-2xl">
-                                {isPlaying ? (
-                                  <Pause className="w-5 h-5 fill-current" />
-                                ) : (
-                                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                                )}
+                            {!isVideoCollapsed && (
+                              <div 
+                                onClick={() => {
+                                  playSynthBeep('click');
+                                  setIsPlaying(prev => !prev);
+                                }}
+                                className="relative flex-1 flex items-center justify-center cursor-pointer z-10 group"
+                              >
+                                <div className="w-12 h-12 rounded-full bg-black/55 hover:bg-[#D4FF00] hover:text-black border border-white/15 flex items-center justify-center backdrop-blur-sm transition-all duration-300 transform group-hover:scale-110 active:scale-95 shadow-2xl">
+                                  {isPlaying ? (
+                                    <Pause className="w-5 h-5 fill-current" />
+                                  ) : (
+                                    <Play className="w-5 h-5 fill-current ml-0.5" />
+                                  )}
+                                </div>
                               </div>
-                            </div>
+                            )}
 
-                            {/* 3. Bottom controls overlaid */}
-                            <div className="relative pb-3 px-4 flex flex-col gap-2 z-10 shrink-0 bg-gradient-to-t from-black via-black/40 to-transparent select-none">
-                              {/* Progress track timeline progress bar with custom click seek */}
-                              <div className="flex items-center gap-3">
-                                <span className="text-[10px] font-mono text-zinc-400 min-w-[32px] block">
-                                  {(() => {
-                                    const currentSeconds = Math.floor((currentSentenceIndex / (lesson.sentences.length || 1)) * 340);
-                                    const m = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
-                                    const s = (currentSeconds % 60).toString().padStart(2, '0');
-                                    return `${m}:${s}`;
-                                  })()}
-                                </span>
+                            {/* 3. Draggable custom slider progress bar and only-audio Mode */}
+                            {!isVideoCollapsed && (
+                              <div className="relative pb-3 px-4 flex flex-col gap-2 z-10 shrink-0 bg-gradient-to-t from-black via-black/40 to-transparent select-none">
+                                {/* Progress timeline track */}
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[10px] font-mono text-zinc-400 min-w-[32px] block">
+                                    {(() => {
+                                      const currentSeconds = Math.floor((currentSentenceIndex / (lesson.sentences.length || 1)) * 340);
+                                      const m = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
+                                      const s = (currentSeconds % 60).toString().padStart(2, '0');
+                                      return `${m}:${s}`;
+                                    })()}
+                                  </span>
 
-                                <div 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    const clickX = e.clientX - rect.left;
-                                    const percentage = clickX / rect.width;
-                                    const targetIdx = Math.min(
-                                      Math.max(0, Math.floor(percentage * lesson.sentences.length)),
-                                      lesson.sentences.length - 1
-                                    );
-                                    playSynthBeep('click');
-                                    setCurrentSentenceIndex(targetIdx);
-                                    speakTextEn(lesson.sentences[targetIdx].text);
-                                  }}
-                                  className="flex-1 h-1.5 bg-white/10 hover:bg-white/20 rounded-full relative cursor-pointer overflow-hidden transition-colors"
-                                >
-                                  <div 
-                                    className="absolute left-0 top-0 bottom-0 bg-[#D4FF00] rounded-full transition-all duration-300 shadow-[0_0_8px_#D4FF00]"
-                                    style={{ width: `${((currentSentenceIndex + 1) / (lesson.sentences.length || 1)) * 100}%` }}
+                                  {/* Draggable Progress input Seeker bar */}
+                                  <input 
+                                    type="range"
+                                    min={0}
+                                    max={lesson.sentences.length - 1}
+                                    value={currentSentenceIndex}
+                                    onChange={(e) => {
+                                      const targetIdx = parseInt(e.target.value);
+                                      setCurrentSentenceIndex(targetIdx);
+                                      speakTextEn(lesson.sentences[targetIdx].text);
+                                    }}
+                                    className="flex-1 accent-[#D4FF00] bg-white/20 h-1.5 rounded-full outline-none cursor-pointer"
+                                    title="拖拽拖动视频进度"
                                   />
+
+                                  <span className="text-[10px] font-mono text-zinc-400 min-w-[32px] text-right block">
+                                    {lesson.durationOrPages}
+                                  </span>
                                 </div>
 
-                                <span className="text-[10px] font-mono text-zinc-400 min-w-[32px] text-right block">
-                                  {lesson.durationOrPages}
-                                </span>
+                                <div className="flex justify-between items-center mt-1">
+                                  <span className="text-[8.5px] font-bold text-neutral-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#D4FF00] animate-ping"></span>
+                                    CYBER EYE CH.1 // VIDEO STREAM
+                                  </span>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      playSynthBeep('click');
+                                      setIsVideoViewClosed(true);
+                                    }}
+                                    className="w-8 h-8 rounded-lg bg-white/5 hover:bg-neutral-850 border border-white/10 flex items-center justify-center text-[#D4FF00] active:scale-95 transition-all active:bg-[#D4FF00] active:text-black"
+                                    title="折叠画面仅听原音"
+                                  >
+                                    <Headphones className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </div>
-
-                              <div className="flex justify-between items-center mt-1">
-                                <span className="text-[8.5px] font-bold text-neutral-500 uppercase tracking-widest font-mono">
-                                  CYBER EYE CH.1 // VIDEO STREAM
-                                </span>
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    playSynthBeep('click');
-                                    setIsVideoViewClosed(true);
-                                  }}
-                                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-neutral-850 border border-white/10 flex items-center justify-center text-[#D4FF00] active:scale-95 transition-all active:bg-[#D4FF00] active:text-black"
-                                  title="仅听音频 Only Audio"
-                                >
-                                  <Headphones className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
+                            )}
                           </div>
                         );
                       })()}
@@ -1726,11 +2081,11 @@ export default function App() {
                       {/* 2. Alternative Space-saving Audio mode panel if showVideo is false */}
                       {(() => {
                         const isVideo = lesson.contentType === 'video';
-                        const showVideo = isVideo && !isVideoViewClosed;
-                        if (showVideo) return null;
+                        // For video lessons, we hide this redundant vinyl player whenCollapsed because our toolbar is fully sufficient!
+                        if (isVideo) return null;
                         
                         return (
-                          <div className="mx-6 mt-4 bg-[#0a0a0c] border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 shadow-xl relative overflow-hidden shrink-0">
+                          <div id="audio_vinyl_player" className="mx-6 mt-4 bg-[#0a0a0c] border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 shadow-xl relative overflow-hidden shrink-0">
                             <div className="absolute top-0 right-0 w-24 h-24 bg-[#D4FF00]/5 filter blur-[20px] pointer-events-none rounded-full" />
                             
                             <div className="flex items-center justify-between">
@@ -1746,11 +2101,11 @@ export default function App() {
                                   />
                                   <div className="absolute w-3 h-3 bg-black border border-white/25 rounded-full" />
                                 </div>
-
+ 
                                 <div className="select-none">
                                   <div className="flex items-center gap-1.5">
                                     <span className="px-1.5 py-0.5 bg-neutral-900 border border-white/5 rounded text-[8px] font-black text-[#D4FF00] font-mono tracking-wider uppercase">
-                                      {lesson.contentType === "video" ? "音频沉浸流 AUDIO MODE" : "播客原音 PODCAST MODE"}
+                                      播客原音 IMMERSIVE EPISODE
                                     </span>
                                     {isPlaying && (
                                       <div className="flex items-center gap-0.5 h-2">
@@ -1760,94 +2115,28 @@ export default function App() {
                                       </div>
                                     )}
                                   </div>
-                                  <p className="text-white text-xs font-black tracking-tight mt-0.5 max-w-[130px] truncate">{lesson.title}</p>
+                                  <p className="text-white text-xs font-black tracking-tight mt-0.5 max-w-[135px] truncate">{lesson.title}</p>
                                 </div>
                               </div>
-
-                              {/* Controls right */}
-                              <div className="flex items-center gap-2 relative">
-                                {/* Subtitle Exporter Button */}
+ 
+                              {/* Simple Play toggle trigger */}
+                              <div className="flex items-center gap-2">
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     playSynthBeep('click');
-                                    setExportDropdownOpen(prev => !prev);
+                                    setIsPlaying(!isPlaying);
                                   }}
-                                  className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${exportDropdownOpen ? "bg-[#D4FF00] border-[#D4FF00] text-black" : "bg-neutral-900 border-white/5 text-zinc-400 hover:text-white"}`}
-                                  title="导出字幕 Subtitle Exporter"
+                                  className="w-10 h-10 rounded-full bg-[#D4FF00] text-black flex items-center justify-center font-black shadow-lg active:scale-90 transition-transform"
                                 >
-                                  <Download className="w-3.5 h-3.5" />
+                                  {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-black ml-0.5" />}
                                 </button>
-
-                                {exportDropdownOpen && (
-                                  <div className="absolute right-0 top-10 bg-zinc-950 border border-white/10 p-1.5 rounded-xl z-50 flex flex-col gap-1 w-32 shadow-2xl animate-fade-in text-[10px]">
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        exportSubtitles(true);
-                                        setExportDropdownOpen(false);
-                                      }}
-                                      className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
-                                    >
-                                      <span>🀄 中英双语字幕</span>
-                                    </button>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        exportSubtitles(false);
-                                        setExportDropdownOpen(false);
-                                      }}
-                                      className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
-                                    >
-                                      <span>🇬🇧 纯英文字幕</span>
-                                    </button>
-                                  </div>
-                                )}
-
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    playSynthBeep('click');
-                                    setIsPlaying(prev => !prev);
-                                  }}
-                                  className="w-8 h-8 rounded-full bg-neutral-900 border border-white/5 flex items-center justify-center text-white hover:text-[#D4FF00] active:scale-90"
-                                >
-                                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
-                                </button>
-
-                                {/* Subtitle sizing overlay cycle toggle */}
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    playSynthBeep('click');
-                                    setFontSizeFactor(prev => prev === 'md' ? 'lg' : prev === 'lg' ? 'xl' : 'md');
-                                  }}
-                                  className="w-8 h-8 rounded-full bg-neutral-950 hover:bg-neutral-900 border border-white/15 flex items-center justify-center text-[10px] font-mono font-black text-zinc-400 active:scale-95 transition-transform"
-                                  title="字号 Sizing"
-                                >
-                                  {fontSizeFactor === 'md' ? 'A' : fontSizeFactor === 'lg' ? 'AA' : 'AAA'}
-                                </button>
-
-                                {/* Switch back to video option if lesson is video */}
-                                {lesson.contentType === "video" && (
-                                  <button 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      playSynthBeep('click');
-                                      setIsVideoViewClosed(false);
-                                    }}
-                                    className="w-8 h-8 rounded-lg bg-[#D4FF00]/10 hover:bg-[#D4FF00]/25 border border-[#D4FF00]/30 text-[#D4FF00] flex items-center justify-center active:scale-95 transition-transform"
-                                    title="开启视频 Show Video"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                )}
                               </div>
                             </div>
-
+ 
                             {/* Clickable slider timeline progress bar */}
                             <div className="flex items-center gap-3 bg-neutral-950/40 p-2.5 rounded-xl border border-white/5">
-                              <span className="text-[9px] font-mono text-zinc-500 min-w-[32px] block">
+                              <span className="text-[9px] font-mono text-zinc-500 min-w-[32px] block font-bold">
                                 {(() => {
                                   const currentSeconds = Math.floor((currentSentenceIndex / (lesson.sentences.length || 1)) * 340);
                                   const m = Math.floor(currentSeconds / 60).toString().padStart(2, '0');
@@ -1855,30 +2144,27 @@ export default function App() {
                                   return `${m}:${s}`;
                                 })()}
                               </span>
-
-                              <div 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const rect = e.currentTarget.getBoundingClientRect();
-                                  const clickX = e.clientX - rect.left;
-                                  const percentage = clickX / rect.width;
-                                  const targetIdx = Math.min(
-                                    Math.max(0, Math.floor(percentage * lesson.sentences.length)),
-                                    lesson.sentences.length - 1
-                                  );
-                                  playSynthBeep('click');
+ 
+                              <input 
+                                type="range"
+                                min={0}
+                                max={lesson.sentences.length - 1}
+                                value={currentSentenceIndex}
+                                onChange={(e) => {
+                                  const targetIdx = parseInt(e.target.value);
+                                  const isImported = !DEFAULT_LESSONS.some(dl => dl.id === lesson.id);
+                                  if (isImported && !isPremiumUser && targetIdx * 6.5 >= 60) {
+                                    setApiErrorMessage("普通免费试用版限制：自主导入的数据资源每次仅能研读前 1 分钟（前 60 秒时间区）。快订阅 CYBER 会员打破束缚！🎁");
+                                    setShowPaymentModal(true);
+                                    return;
+                                  }
                                   setCurrentSentenceIndex(targetIdx);
                                   speakTextEn(lesson.sentences[targetIdx].text);
                                 }}
-                                className="flex-1 h-1.5 bg-white/10 hover:bg-white/20 rounded-full relative cursor-pointer overflow-hidden transition-colors"
-                              >
-                                <div 
-                                  className="absolute left-0 top-0 bottom-0 bg-[#D4FF00] rounded-full transition-all duration-300 shadow-[0_0_8px_#D4FF00]"
-                                  style={{ width: `${((currentSentenceIndex + 1) / (lesson.sentences.length || 1)) * 100}%` }}
-                                />
-                              </div>
-
-                              <span className="text-[9px] font-mono text-zinc-500 min-w-[32px] text-right block">
+                                className="flex-1 accent-[#D4FF00] bg-white/10 h-1.5 rounded-full outline-none cursor-pointer"
+                              />
+ 
+                              <span className="text-[9px] font-mono text-zinc-500 min-w-[32px] text-right block font-bold">
                                 {lesson.durationOrPages}
                               </span>
                             </div>
@@ -1896,6 +2182,128 @@ export default function App() {
 
                       {/* Main subtitle/text rendering flow pane */}
                       <div className="flex-1 overflow-y-auto px-6 py-6 pb-28 no-scrollbar scroll-smooth relative">
+                        {/* Cyber Interactive Study Toolbar */}
+                        <div id="cyber_interactive_toolbar" className="mb-6 bg-[#111113] border border-white/5 rounded-2xl p-3 flex flex-wrap gap-2.5 items-center justify-between select-none font-sans text-xs">
+                          {/* 1. Video Display Toggle (Only shown for video lessons) */}
+                          {lesson.contentType === 'video' && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  playSynthBeep('click');
+                                  setIsVideoCollapsed(!isVideoCollapsed);
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1.5 transition-all active:scale-95 border ${
+                                  !isVideoCollapsed 
+                                    ? "bg-neutral-800 border-white/10 text-white" 
+                                    : "bg-[#D4FF00] text-black border-[#D4FF00] shadow-lg shadow-lime-400/10"
+                                }`}
+                              >
+                                <span>{!isVideoCollapsed ? "🧘 纯音研读 (隐藏视频)" : "🎬 展开画面 (视频模式)"}</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {/* 2. Chinese Translation display toggle (Simple toggle) */}
+                          <button
+                            onClick={() => {
+                              playSynthBeep('click');
+                              setShowChineseSubtitles(!showChineseSubtitles);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1.5 transition-all active:scale-95 border ${
+                              showChineseSubtitles 
+                                ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" 
+                                : "bg-neutral-900 border-white/5 text-zinc-500"
+                            }`}
+                            title="中文字幕显示切换"
+                          >
+                            <span>{showChineseSubtitles ? "★ 中西对照: 开启" : "☆ 纯英研读: 关闭中文"}</span>
+                          </button>
+
+                          {/* 3. Font zoom sizing */}
+                          <div className="flex items-center gap-1 bg-neutral-950 p-1 rounded-xl border border-white/5">
+                            <button
+                              onClick={() => {
+                                playSynthBeep('click');
+                                if (fontSizeFactor === 'lg') setFontSizeFactor('md');
+                                else if (fontSizeFactor === 'xl') setFontSizeFactor('lg');
+                              }}
+                              disabled={fontSizeFactor === 'md'}
+                              className="w-6 h-6 flex items-center justify-center text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none font-extrabold text-[9px]"
+                              title="缩小字号 Font Shrink"
+                            >
+                              -
+                            </button>
+                            <span className="text-[9px] font-black text-[#D4FF00] font-sans px-1 select-none whitespace-nowrap">
+                              字号: {fontSizeFactor === 'md' ? '小' : fontSizeFactor === 'lg' ? '中' : '大'}
+                            </span>
+                            <button
+                              onClick={() => {
+                                playSynthBeep('click');
+                                if (fontSizeFactor === 'md') setFontSizeFactor('lg');
+                                else if (fontSizeFactor === 'lg') setFontSizeFactor('xl');
+                              }}
+                              disabled={fontSizeFactor === 'xl'}
+                              className="w-6 h-6 flex items-center justify-center text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none font-extrabold text-[9px]"
+                              title="放大字号 Font Expand"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* 4. Subtitle Exporter (Share & Download All) */}
+                          <div className="relative">
+                            <button
+                              onClick={() => {
+                                playSynthBeep('click');
+                                setExportDropdownOpen(!exportDropdownOpen);
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1 transition-all active:scale-95 border ${
+                                exportDropdownOpen 
+                                  ? "bg-[#D4FF00] text-black border-[#D4FF00]" 
+                                  : "bg-neutral-900 border-white/5 text-zinc-400 hover:text-white"
+                              }`}
+                            >
+                              <Download className="w-3 h-3 shrink-0" />
+                              <span>📥 导出/分享全部字幕</span>
+                            </button>
+
+                            {exportDropdownOpen && (
+                              <div className="absolute right-0 bottom-9 bg-zinc-950 border border-white/10 p-1.5 rounded-xl z-50 flex flex-col gap-1 w-32 shadow-2xl animate-fade-in text-[10px]">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    exportSubtitles('bilingual');
+                                    setExportDropdownOpen(false);
+                                  }}
+                                  className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                >
+                                  <span>🀄 中英双语字幕</span>
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    exportSubtitles('chinese');
+                                    setExportDropdownOpen(false);
+                                  }}
+                                  className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                >
+                                  <span>🇨🇳 纯中文字幕</span>
+                                </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    exportSubtitles('english');
+                                    setExportDropdownOpen(false);
+                                  }}
+                                  className="py-1.5 px-2 rounded-lg text-left hover:bg-neutral-900 text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors font-sans font-bold whitespace-nowrap"
+                                >
+                                  <span>🇬🇧 纯英文字幕</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         {lesson.sentences.map((sentence, sIdx) => {
                           const isFocussed = sIdx === currentSentenceIndex;
                           
@@ -1905,6 +2313,12 @@ export default function App() {
                               className={`transition-all duration-500 py-6 pr-4 relative border-b border-white/5 ${isFocussed ? "opacity-100 py-8" : "opacity-25"}`}
                               onClick={() => {
                                 playSynthBeep('click');
+                                const isImported = !DEFAULT_LESSONS.some(dl => dl.id === lesson.id);
+                                if (isImported && !isPremiumUser && sIdx * 6.5 >= 60) {
+                                  setApiErrorMessage("普通免费试用版限制：自主导入的数据资源每次仅能研读前 1 分钟（前 60 秒卡片区）。快订阅 CYBER 会员打破束缚！🎁");
+                                  setShowPaymentModal(true);
+                                  return;
+                                }
                                 setCurrentSentenceIndex(sIdx);
                                 speakTextEn(sentence.text);
                               }}
@@ -1939,7 +2353,9 @@ export default function App() {
                                           : fontSizeFactor === 'lg' 
                                           ? "text-[21px] leading-relaxed" 
                                           : "text-[27px] leading-loose"
-                                      } ${customUnderline} ${textAccentColor}`}
+                                      } ${customUnderline} ${textAccentColor} ${
+                                        !showEnglishSubtitles ? "blur-md select-none opacity-10 hover:blur-none hover:opacity-100" : ""
+                                      }`}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         initiateWordLookup(word);
@@ -1951,25 +2367,22 @@ export default function App() {
                                 })}
                               </div>
 
-                              {/* Focussed Chinese helper line, faded if Zen Mode active to support pure immersion */}
-                              <AnimatePresence>
-                                {isFocussed && !isZenMode && (
-                                  <motion.p 
-                                    className={`text-neutral-400 mt-3 font-semibold leading-relaxed tracking-wide transition-all ${
-                                      fontSizeFactor === 'md' 
-                                        ? "text-xs" 
-                                        : fontSizeFactor === 'lg' 
-                                        ? "text-sm" 
-                                        : "text-base"
-                                    }`}
-                                    initial={{ opacity: 0, y: 5 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                  >
-                                    {sentence.translation}
-                                  </motion.p>
-                                )}
-                              </AnimatePresence>
+                              {/* Chinese helper line shown for every sentence under subtitle, highlighted on focus */}
+                              {showChineseSubtitles && !isZenMode && (
+                                <p 
+                                  className={`mt-2 font-bold leading-relaxed tracking-wide transition-all duration-300 ${
+                                    isFocussed ? "text-[#D4FF00]" : "text-neutral-500 hover:text-neutral-400"
+                                  } ${
+                                    fontSizeFactor === 'md' 
+                                      ? "text-xs" 
+                                      : fontSizeFactor === 'lg' 
+                                      ? "text-sm" 
+                                      : "text-base"
+                                  }`}
+                                >
+                                  {sentence.translationCn || sentence.translation}
+                                </p>
+                              )}
 
                               {/* Space operations layout bar for ADHD tactile triggers */}
                               {isFocussed && (
@@ -2001,6 +2414,20 @@ export default function App() {
                                     <Volume2 className="w-3.5 h-3.5 text-[#D4FF00]" /> 慢速
                                   </button>
 
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      playSynthBeep('success');
+                                      setSharedSubtitleText(sentence.text);
+                                      setSharedSubtitleTranslation(sentence.translationCn || sentence.translation);
+                                      setShowSubtitleShareModal(true);
+                                    }}
+                                    className="px-3.5 py-1.5 bg-neutral-900 border border-neutral-800 rounded-xl text-[10px] font-mono font-bold text-emerald-400 tracking-widest uppercase flex items-center gap-1.5 active:scale-95 transition-transform"
+                                    title="分享此句字幕"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> 分享
+                                  </button>
+
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2019,37 +2446,39 @@ export default function App() {
                       </div>
 
                       {/* Simulated Wave audio-play control bar docked at bottom */}
-                      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] bg-black/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex items-center justify-between z-50">
-                        <div className="flex items-center gap-3">
+                      {lesson.contentType !== 'video' && (
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] bg-black/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex items-center justify-between z-50">
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => {
+                                playSynthBeep('click');
+                                setIsPlaying(prev => !prev);
+                              }}
+                              className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center active:scale-95 transition-transform"
+                            >
+                              {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
+                            </button>
+                            <div>
+                              <div className="text-[9px] font-mono text-cyan-400 font-black uppercase tracking-wider">极速流音频研读中 HD</div>
+                              <div className="text-white text-xs font-bold font-mono">
+                                句子 {currentSentenceIndex + 1} / {lesson.sentences.length}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Loop single sentence switch */}
                           <button 
                             onClick={() => {
                               playSynthBeep('click');
-                              setIsPlaying(prev => !prev);
+                              setIsLoopingSentence(prev => !prev);
                             }}
-                            className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center active:scale-95 transition-transform"
+                            className={`w-10 h-10 rounded-full flex items-center justify-center active:scale-95 border transition-all ${isLoopingSentence ? "bg-[#D4FF00]/10 border-[#D4FF00] text-[#D4FF00]" : "bg-neutral-900 border-neutral-800 text-neutral-400"}`}
+                            title="单句循环锁定"
                           >
-                            {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
+                            <Repeat className="w-4 h-4" />
                           </button>
-                          <div>
-                            <div className="text-[9px] font-mono text-[#D4FF00] font-black uppercase tracking-wider">声联动力音频解码 L1</div>
-                            <div className="text-white text-xs font-bold font-mono">
-                              句子 {currentSentenceIndex + 1} / {lesson.sentences.length}
-                            </div>
-                          </div>
                         </div>
-
-                        {/* Loop single sentence switch */}
-                        <button 
-                          onClick={() => {
-                            playSynthBeep('click');
-                            setIsLoopingSentence(prev => !prev);
-                          }}
-                          className={`w-10 h-10 rounded-full flex items-center justify-center active:scale-95 border transition-all ${isLoopingSentence ? "bg-[#D4FF00]/10 border-[#D4FF00] text-[#D4FF00]" : "bg-neutral-900 border-neutral-800 text-neutral-400"}`}
-                          title="单句循环锁定"
-                        >
-                          <Repeat className="w-4 h-4" />
-                        </button>
-                      </div>
+                      )}
                     </>
                   );
                 })()}
@@ -2076,32 +2505,60 @@ export default function App() {
 
             {/* Continuing Immersion Hero card (40% page impact) */}
             <div 
-              onClick={() => selectActiveLesson(lessons[0]?.id || "jobs-commencement")}
-              className="mt-4 bg-[#111113] border border-white/5 rounded-[2rem] p-6 relative overflow-hidden box-glow cursor-pointer group active:scale-98 transition-all"
+              onClick={() => {
+                const targetId = lastLearnedItem ? lastLearnedItem.id : (lessons[0]?.id || "jobs-commencement");
+                if (lastLearnedItem && lastLearnedItem.type === 'word') {
+                  playSynthBeep('click');
+                  setCurrentTab('vault');
+                  setVaultMainCategory('words');
+                  const matchedWord = vocabularies.find(v => v.word.toLowerCase() === lastLearnedItem.title.toLowerCase());
+                  if (matchedWord) {
+                    setExpandedVocabId(matchedWord.id);
+                  }
+                } else {
+                  selectActiveLesson(targetId);
+                }
+              }}
+              className="mt-4 bg-[#111113]/90 border border-white/5 rounded-[2rem] p-6 relative overflow-hidden box-glow cursor-pointer group active:scale-98 transition-all"
             >
               {/* Soft neon core glow filter */}
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4FF00]/15 rounded-full filter blur-[50px] pointer-events-none" />
 
               <div className="flex justify-between items-start mb-4">
                 <span className="px-3 py-1 bg-[#D4FF00]/10 border border-[#D4FF00]/30 rounded-full text-[9px] font-mono font-bold text-[#D4FF00] tracking-widest uppercase flex items-center gap-1.5">
-                  <span className="w-1 h-1 rounded-full bg-[#D4FF00]"></span> 继续脑语回圈
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4FF00] animate-pulse"></span> 继续学习
                 </span>
                 <span className="text-xs font-mono font-bold text-neutral-500">已连续学习 {stats.streak} 天</span>
               </div>
 
-              <h2 className="text-white text-3xl font-black leading-tight mb-2 tracking-tight group-hover:text-[#D4FF00] transition-colors">
-                继续沉浸<br />原声语境。
-              </h2>
-              <p className="text-neutral-500 text-xs mb-6 font-medium">点击继续，让极简声音科技抚平传统背词压力。</p>
+              {/* Dynamic Last Learned Item rendering */}
+              {lastLearnedItem ? (
+                <div>
+                  <span className="text-[10px] font-mono text-[#D4FF00] uppercase tracking-widest block font-black mb-1">
+                    {lastLearnedItem.type === 'epub' ? "📚 E-BOOK 书籍经典" : lastLearnedItem.type === 'video' ? "🎬 BLOG VIDEO 视频网课" : lastLearnedItem.type === 'word' ? "🗃️ VOCABULARY 生词温习" : "🎙️ ORIGINAL AUDIO 原声听力"}
+                  </span>
+                  <h3 className="text-white text-2xl font-black leading-tight mb-2 tracking-tight group-hover:text-[#D4FF00] transition-colors truncate max-w-full">
+                    {lastLearnedItem.type === 'word' ? splitWordIntoSyllables(lastLearnedItem.title) : lastLearnedItem.title}
+                  </h3>
+                  <p className="text-neutral-500 text-xs mb-5 font-medium">上次学习到此进度，点击一键恢复声波沉浸学习。</p>
+                </div>
+              ) : (
+                <div>
+                  <h2 className="text-white text-3xl font-black leading-tight mb-2 tracking-tight group-hover:text-[#D4FF00] transition-colors">
+                    继续沉浸<br />原声语境。
+                  </h2>
+                  <p className="text-neutral-500 text-xs mb-6 font-medium">点击继续，让极简声音科技抚平传统背词压力。</p>
+                </div>
+              )}
 
               {/* Holographic start play button */}
-              <button className="w-full bg-[#D4FF00] hover:bg-[#cbf500] text-black font-black py-4.5 rounded-2xl flex justify-center items-center gap-2 transition-colors text-sm">
-                初始化声波破译中枢 <Zap className="w-4 h-4 fill-black" />
+              <button className="w-full bg-[#D4FF00] hover:bg-[#cbf500] text-black font-black py-4 rounded-2xl flex justify-center items-center gap-2 transition-all active:scale-95 text-xs tracking-wider uppercase">
+                恢复声波破译舱 <Zap className="w-4 h-4 fill-black" />
               </button>
             </div>
 
-            {/* Universal Extractor Parser Grid (Matching Slava Kornilov aesthetic) */}
-            <div className="mt-5">
+             {/* Universal Extractor Parser Grid (Matching Slava Kornilov aesthetic) */}
+             <div className="mt-5">
               <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest font-black mb-3 pl-1">
                 资源导入 CENTRAL INGRESS
               </div>
@@ -2111,8 +2568,9 @@ export default function App() {
                   onClick={() => {
                     playSynthBeep('click');
                     if (!isWechatBound) {
+                      setLoginRequiredReason("数据长期安全同步提示🐾：为了让您自定的 URL 导入的流媒体和网页精读内容能够安全、长期保持备份不丢失，需要通过微信同步到您的账户中。");
                       setShowLoginModal(true);
-                    } else {
+                    } else if (checkImportLimit()) {
                       setActiveImportTab('url');
                       setShowImport舱(true);
                     }
@@ -2135,17 +2593,22 @@ export default function App() {
                   <button 
                     onClick={() => {
                       playSynthBeep('click');
-                      setActiveImportTab('media');
-                      setShowImport舱(true);
+                      if (!isWechatBound) {
+                        setLoginRequiredReason("数据长期安全同步提示🐾：为了长期安全、稳定地在您的个人云端中转录和存储本地音视频资源，我们需要关联您的微信同步账号。");
+                        setShowLoginModal(true);
+                      } else if (checkImportLimit()) {
+                        setActiveImportTab('media');
+                        setShowImport舱(true);
+                      }
                     }}
-                    className="flex-1 bg-[#111113] hover:bg-[#161619] border border-white/5 hover:border-[#D4FF00]/50 rounded-2xl px-4 py-3 flex items-center gap-3 text-left transition-all active:scale-98 shadow-[0_4px_20px_rgba(0,0,0,0.5)] group"
+                    className="flex-1 bg-[#111113] hover:bg-[#161619] border border-[#ff3200]/20 hover:border-[#D4FF00]/50 rounded-2xl px-4 py-3 flex items-center gap-3 text-left transition-all active:scale-98 shadow-[0_4px_20px_rgba(0,0,0,0.5)] group"
                     id="local-media-tile"
                   >
                     <div className="w-8 h-8 rounded-full bg-neutral-900 border border-white/5 flex items-center justify-center text-emerald-400 group-hover:shadow-[0_0_12px_rgba(52,211,153,0.3)] transition-all">
                       <FileAudio className="w-3.5 h-3.5" />
                     </div>
                     <div>
-                      <span className="block text-white text-[12px] font-black leading-tight">导入本地视频</span>
+                      <span className="block text-white text-[12px] font-black leading-tight">导入本地音视频</span>
                       <span className="block text-neutral-500 text-[8px] font-mono leading-none mt-0.5">支持 MP4 视频或 MP3 音频转录</span>
                     </div>
                   </button>
@@ -2154,8 +2617,13 @@ export default function App() {
                   <button 
                     onClick={() => {
                       playSynthBeep('click');
-                      setActiveImportTab('epub');
-                      setShowImport舱(true);
+                      if (!isWechatBound) {
+                        setLoginRequiredReason("数据长期安全同步提示🐾：为了能保证您精挑细选导入的 EPUB/PDF 电子书书架和对应的阅读高光历史不丢失，需要进行微信授权绑定。");
+                        setShowLoginModal(true);
+                      } else if (checkImportLimit()) {
+                        setActiveImportTab('epub');
+                        setShowImport舱(true);
+                      }
                     }}
                     className="flex-1 bg-[#111113] hover:bg-[#161619] border border-white/5 hover:border-[#D4FF00]/50 rounded-2xl px-4 py-3 flex items-center gap-3 text-left transition-all active:scale-98 shadow-[0_4px_20px_rgba(0,0,0,0.5)] group"
                     id="epub-reader-tile"
@@ -2164,7 +2632,7 @@ export default function App() {
                       <BookOpen className="w-3.5 h-3.5" />
                     </div>
                     <div>
-                      <span className="block text-white text-[12px] font-black leading-tight">导入电纸书小说</span>
+                      <span className="block text-white text-[12px] font-black leading-tight">导入电子书</span>
                       <span className="block text-neutral-500 text-[8px] font-mono leading-none mt-0.5">支持 EPUB / PDF / TXT精读</span>
                     </div>
                   </button>
@@ -2175,12 +2643,12 @@ export default function App() {
             {/* Recent Captured resources database lists */}
             <div className="mt-8 flex flex-col flex-1">
               <div className="flex justify-between items-center mb-4 pl-1">
-                <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest font-black">学习频道</span>
+                <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest font-black">最新新增</span>
                 <button 
                   onClick={() => { playSynthBeep('click'); setShowAllLessonsModal(true); }}
                   className="px-2.5 py-1 text-[10px] font-bold text-black bg-[#D4FF00] hover:bg-[#cbf500] rounded-xl tracking-wider transition-all uppercase flex items-center gap-1 active:scale-95"
                 >
-                  全部 ({lessons.length})
+                  语感岛 ({lessons.length})
                 </button>
               </div>
 
@@ -2188,18 +2656,21 @@ export default function App() {
                 {lessons.slice(0, 3).map(lesson => (
                   <div 
                     key={lesson.id}
-                    onClick={() => selectActiveLesson(lesson.id)}
-                    className="bg-[#111113]/80 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 transition-colors relative overflow-hidden active:scale-98"
+                    onClick={() => {
+                      playSynthBeep('click');
+                      selectActiveLesson(lesson.id);
+                    }}
+                    className="bg-[#111113]/90 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 transition-colors relative active:scale-98"
                   >
-                    <div className="flex items-center gap-3.5 overflow-hidden">
+                    <div className="flex items-center gap-3.5 overflow-hidden flex-1">
                       <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-white/10 flex items-center justify-center text-white shrink-0 relative overflow-hidden">
                         <img src={lesson.coverImage} className="absolute inset-0 w-full h-full object-cover opacity-20" alt="" />
                         <div className="relative z-10 text-lime-400">
                           {lesson.contentType === "video" ? <Play className="w-4 h-4 fill-current" /> : lesson.contentType === "epub" ? <BookOpen className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
                         </div>
                       </div>
-                      <div className="overflow-hidden">
-                        <span className="text-white text-sm font-bold block truncate max-w-[170px]">{lesson.title}</span>
+                      <div className="overflow-hidden flex-1 pr-2">
+                        <span className="text-white text-sm font-bold block truncate max-w-[180px]">{lesson.title}</span>
                         <div className="flex items-center gap-2 text-[9px] font-mono text-neutral-500 mt-1 uppercase">
                           <span>{lesson.contentType}</span>
                           <span>•</span>
@@ -2208,18 +2679,10 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <span className="text-[10px] font-mono font-bold text-neutral-400 bg-white/5 px-2 py-1 rounded">
                         {lesson.progress}%
                       </span>
-                      {/* Left Swipe sliding delete simulation */}
-                      <button 
-                        onClick={(e) => deleteLesson(lesson.id, e)}
-                        className="w-8 h-8 rounded-lg bg-red-950/20 text-rose-400 flex items-center justify-center hover:bg-rose-900/30 font-bold"
-                        title="Delete source block"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -2232,346 +2695,648 @@ export default function App() {
             
             <div className="py-4 flex justify-between items-end">
               <div>
-                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black block">Neural Loot</span>
-                <h2 className="text-3xl font-black text-white tracking-tight">精选生词库</h2>
+                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black block">Neural streams</span>
+                <h2 className="text-3xl font-black text-white tracking-tight">语感瀑布流</h2>
               </div>
               <div className="text-right">
-                <span className="text-[20px] font-mono font-black text-[#D4FF00] block">{vocabularies.length}</span>
-                <span className="text-[9px] font-mono text-neutral-600 block uppercase font-bold">已收录字词</span>
+                <span className="text-[20px] font-mono font-black text-[#D4FF00] block">
+                  {vaultMainCategory === 'words' && vocabularies.filter(v => !v.word.trim().includes(" ")).length}
+                  {vaultMainCategory === 'phrases' && vocabularies.filter(v => v.word.trim().includes(" ")).length}
+                  {vaultMainCategory === 'sentences' && favorites.length}
+                </span>
+                <span className="text-[9px] font-mono text-neutral-600 block uppercase font-bold">已收藏</span>
               </div>
             </div>
 
-            {/* known known/core/hard stats block matrix */}
-            <div className="grid grid-cols-3 gap-2.5 mt-4">
+            {/* Main Categories Selector Drawer */}
+            <div className="flex bg-zinc-950 p-1 border border-white/5 rounded-2xl mb-4 mt-2 select-none">
               <button 
-                onClick={() => { playSynthBeep('click'); setVaultFilter('all'); }}
-                className={`py-2 px-3 rounded-xl border text-center transition-colors ${vaultFilter === 'all' ? "bg-white/10 text-white border-white/20" : "bg-neutral-900 text-neutral-500 border-neutral-800"}`}
+                onClick={() => { playSynthBeep('click'); setVaultMainCategory('words'); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${vaultMainCategory === 'words' ? "bg-white/10 text-[#D4FF00] font-bold" : "text-neutral-500 hover:text-white"}`}
               >
-                <span className="text-xs font-bold block">全部 ALL</span>
-                <span className="text-[10px] font-mono">{vocabularies.length}</span>
+                单词 ({vocabularies.filter(v => !v.word.trim().includes(" ")).length})
               </button>
               <button 
-                onClick={() => { playSynthBeep('click'); setVaultFilter('green'); }}
-                className={`py-2 px-3 rounded-xl border text-center transition-colors ${vaultFilter === 'green' ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/40 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : "bg-neutral-900 text-neutral-500 border-neutral-800"}`}
+                onClick={() => { playSynthBeep('click'); setVaultMainCategory('phrases'); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${vaultMainCategory === 'phrases' ? "bg-white/10 text-[#D4FF00] font-bold" : "text-neutral-500 hover:text-white"}`}
               >
-                <div className="flex justify-center items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="text-xs font-bold block">熟识 KNOWN</span>
-                </div>
-                <span className="text-[10px] font-mono">{vocabularies.filter(v => v.color === 'green').length}</span>
+                词组 ({vocabularies.filter(v => v.word.trim().includes(" ")).length})
               </button>
               <button 
-                onClick={() => { playSynthBeep('click'); setVaultFilter('yellow'); }}
-                className={`py-2 px-3 rounded-xl border text-center transition-colors ${vaultFilter === 'yellow' ? "bg-lime-400/10 text-[#D4FF00] border-lime-400/40 shadow-[0_0_10px_rgba(212,255,0,0.1)]" : "bg-neutral-900 text-neutral-500 border-neutral-800"}`}
+                onClick={() => { playSynthBeep('click'); setVaultMainCategory('sentences'); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${vaultMainCategory === 'sentences' ? "bg-white/10 text-[#D4FF00] font-bold" : "text-neutral-500 hover:text-white"}`}
               >
-                <div className="flex justify-center items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4FF00]"></span>
-                  <span className="text-xs font-bold block">精读 CORE</span>
-                </div>
-                <span className="text-[10px] font-mono">{vocabularies.filter(v => v.color === 'yellow').length}</span>
+                句子 ({favorites.length})
               </button>
             </div>
 
-            <div className="w-full h-px bg-white/5 my-4"></div>
+            {/* Words Only: categorized by review progress status with 4 responsive columns */}
+            {vaultMainCategory === 'words' && (
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                <button 
+                  onClick={() => { playSynthBeep('click'); setVaultFilter('all'); }}
+                  className={`py-2 px-1 rounded-xl border text-center transition-all ${vaultFilter === 'all' ? "bg-white/10 text-white border-white/20" : "bg-neutral-900/60 text-neutral-500 border-neutral-800"}`}
+                >
+                  <span className="text-[10px] font-bold block leading-none">全部</span>
+                  <span className="text-[9px] font-mono text-zinc-400 font-bold block mt-1.5">{vocabularies.filter(v => !v.word.trim().includes(" ")).length}</span>
+                </button>
+                <button 
+                  onClick={() => { playSynthBeep('click'); setVaultFilter('green'); }}
+                  className={`py-2 px-1 rounded-xl border text-center transition-all ${vaultFilter === 'green' ? "bg-emerald-500/15 text-emerald-400 border-emerald-555/30" : "bg-neutral-900/60 text-neutral-500 border-neutral-800"}`}
+                >
+                  <span className="text-[10px] font-bold block leading-none text-emerald-400">熟识</span>
+                  <span className="text-[9px] font-mono text-emerald-400 block mt-1.5">{vocabularies.filter(v => !v.word.trim().includes(" ") && v.color === 'green').length}</span>
+                </button>
+                <button 
+                  onClick={() => { playSynthBeep('click'); setVaultFilter('yellow'); }}
+                  className={`py-2 px-1 rounded-xl border text-center transition-all ${vaultFilter === 'yellow' ? "bg-lime-400/10 text-[#D4FF00] border-lime-400/30" : "bg-neutral-900/60 text-neutral-500 border-neutral-800"}`}
+                >
+                  <span className="text-[10px] font-bold block leading-none text-[#D4FF00]">精读</span>
+                  <span className="text-[9px] font-mono text-[#D4FF00] block mt-1.5">{vocabularies.filter(v => !v.word.trim().includes(" ") && v.color === 'yellow').length}</span>
+                </button>
+                <button 
+                  onClick={() => { playSynthBeep('click'); setVaultFilter('red'); }}
+                  className={`py-2 px-1 rounded-xl border text-center transition-all ${vaultFilter === 'red' ? "bg-rose-500/15 text-rose-400 border-rose-550/30 font-bold" : "bg-neutral-900/60 text-neutral-500 border-neutral-800"}`}
+                >
+                  <span className="text-[10px] font-bold block leading-none text-rose-400">陌生</span>
+                  <span className="text-[9px] font-mono text-rose-400 block mt-1.5">{vocabularies.filter(v => !v.word.trim().includes(" ") && v.color === 'red').length}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="w-full h-px bg-white/5 mb-4"></div>
 
             {/* Empty stats state with high-end Ghost illustration */}
-            {filteredVocabCollection.length === 0 ? (
+            {((vaultMainCategory !== 'sentences' && filteredVocabCollection.length === 0) || (vaultMainCategory === 'sentences' && favorites.length === 0)) ? (
               <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-neutral-600 transform rotate-12 mb-4 animate-bounce">
                   <Cpu className="w-8 h-8" />
                 </div>
                 <h3 className="text-white font-black text-md">这里空空如也</h3>
                 <p className="text-neutral-500 text-xs px-8 mt-2 leading-relaxed">
-                  开始扫描粘贴文章、点击原声字幕，或长按电子书生词句子来进行高光收录收藏。
+                  开始点击原声字幕，或长按电子书生词句子来进行高光收录收藏到语感流中。
                 </p>
                 <button 
                   onClick={() => { playSynthBeep('click'); setCurrentTab('listen'); }}
-                  className="mt-6 px-5 py-2.5 bg-lime-400 text-black text-xs font-black rounded-lg active:scale-95 transition-transform"
+                  className="mt-6 px-5 py-2.5 bg-[#D4FF00] text-black text-xs font-black rounded-lg active:scale-95 transition-transform"
                 >
-                  去学习频道精读 
+                  开始探索波段 
                 </button>
               </div>
-            ) : (
-              /* Immersive phrase waterfall timeline list */
+            ) : vaultMainCategory === 'sentences' ? (
+              /* If sentences category selected, output full sentence cards with left-swipe gestures */
               <div className="space-y-4">
-                {filteredVocabCollection.map(v => (
-                  <div 
-                    key={v.id}
-                    onClick={() => {
-                      playSynthBeep('click');
-                      setExpandedVocabId(expandedVocabId === v.id ? null : v.id);
-                    }}
-                    className={`bg-[#111113]/80 border rounded-2xl p-5 relative overflow-hidden group hover:border-[#D4FF00]/40 transition-all ${expandedVocabId === v.id ? "border-[#D4FF00]/40 bg-zinc-950 shadow-2xl" : "border-white/5 cursor-pointer"}`}
-                  >
-                    {/* Spatial color flag circle */}
-                    <div className="absolute top-5 right-5 flex items-center gap-1.5">
-                      <span className={`w-2.5 h-2.5 rounded-full ${v.color === 'green' ? "bg-emerald-400" : v.color === 'red' ? "bg-rose-500" : "bg-lime-400 neon-glow"}`}></span>
-                      <span className="text-[9px] font-mono text-neutral-600 uppercase font-black">{v.color === 'green' ? '熟识' : v.color === 'red' ? '陌生' : '核心'}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 mb-1.5">
-                      <h3 className="text-xl font-black text-white group-hover:text-[#D4FF00] transition-colors">{v.word}</h3>
-                      <span className="text-neutral-400 font-mono text-xs">{v.phonetic}</span>
-                      <span className="text-[10px] bg-white/5 text-neutral-400 font-bold px-1.5 rounded">{v.partOfSpeech}</span>
-                    </div>
-
-                    <p className="text-neutral-400 text-xs leading-relaxed mb-1.5 font-medium">{v.definitionCn}</p>
-
-                    {v.example && expandedVocabId !== v.id && (
-                      <div className="bg-zinc-950 p-3 rounded-xl border border-white/5 flex gap-2 items-start relative mt-3">
-                        <div className="text-[11px] text-zinc-500 italic flex-1 font-mono">
-                          "{v.example}"
-                        </div>
+                {favorites.map((textStr, sIdx) => {
+                  let startX = 0;
+                  const isSwiped = swipedSentenceIdx === sIdx;
+                  return (
+                    <div key={sIdx} className="relative w-full overflow-hidden rounded-2xl">
+                      {/* Swipe Underlay Action Layer */}
+                      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 bg-zinc-950 px-3 z-0">
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleShadowingSpeech(v.example);
+                            setSwipedSentenceIdx(null);
+                            playSynthBeep('success');
+                            const match = lessons.flatMap(l => l.sentences).find(s => s.text === textStr);
+                            setSharedSubtitleText(textStr);
+                            setSharedSubtitleTranslation(match ? (match.translationCn || match.translation) : "暂未翻译");
+                            setShowSubtitleShareModal(true);
                           }}
-                          className="w-7 h-7 rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white active:scale-90"
-                          title="慢速朗读"
+                          className="h-[88%] px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-colors border border-emerald-500/15"
                         >
-                          <Volume2 className="w-3.5 h-3.5 text-[#D4FF00]" />
+                          <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>分享</span>
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSwipedSentenceIdx(null);
+                            playSynthBeep('success');
+                            toggleSentenceFavorite(textStr);
+                          }}
+                          className="h-[88%] px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-colors border border-rose-500/15"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                          <span>删除</span>
                         </button>
                       </div>
-                    )}
 
-                    {/* Highly modular slide up card expanded info context from DB */}
-                    {expandedVocabId === v.id && (
-                      <motion.div 
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-4 pt-4 border-t border-white/5 space-y-4 text-xs font-sans"
-                        onClick={(e) => e.stopPropagation()}
+                      {/* Foreground Card */}
+                      <div 
+                        onTouchStart={(e) => {
+                          startX = e.touches[0].clientX;
+                        }}
+                        onTouchEnd={(e) => {
+                          const deltaX = startX - e.changedTouches[0].clientX;
+                          if (deltaX > 45) {
+                            setSwipedSentenceIdx(sIdx);
+                            playSynthBeep('click');
+                          } else if (deltaX < -45) {
+                            if (swipedSentenceIdx === sIdx) {
+                              setSwipedSentenceIdx(null);
+                              playSynthBeep('click');
+                            }
+                          }
+                        }}
+                        onMouseDown={(e) => {
+                          startX = e.clientX;
+                        }}
+                        onMouseUp={(e) => {
+                          const deltaX = startX - e.clientX;
+                          if (deltaX > 45) {
+                            setSwipedSentenceIdx(sIdx);
+                            playSynthBeep('click');
+                          } else if (deltaX < -45) {
+                            if (swipedSentenceIdx === sIdx) {
+                              setSwipedSentenceIdx(null);
+                              playSynthBeep('click');
+                            }
+                          }
+                        }}
+                        className={`bg-[#111113]/80 border border-white/5 rounded-2xl p-5 relative overflow-hidden group hover:border-[#D4FF00]/40 flex flex-col justify-between z-10 transition-transform duration-300 ${isSwiped ? "-translate-x-[136px]" : "translate-x-0"}`}
                       >
-                        {/* Audio pronunciation trigger */}
-                        <div className="flex items-center justify-between bg-zinc-900/40 p-2.5 rounded-xl border border-white/5">
-                          <span className="text-zinc-400 font-mono text-[10px]">系统语音引擎单词朗读</span>
+                        <div className="flex justify-between items-start gap-4 mb-3">
+                          <p className="text-white text-sm font-bold leading-relaxed font-sans">{textStr}</p>
+                          
                           <button 
-                            onClick={() => { playSynthBeep('click'); speakTextEn(v.word); }}
-                            className="bg-zinc-950 hover:bg-zinc-900 p-2 rounded-lg text-[#D4FF00] border border-white/5 flex items-center gap-1.5 active:scale-95 transition-all text-[11px] font-bold"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playSynthBeep('click');
+                              toggleSentenceFavorite(textStr);
+                            }}
+                            className="w-8 h-8 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center hover:bg-rose-550/20 active:scale-95 border border-rose-500/20"
+                            title="取消收藏"
                           >
-                            <Volume2 className="w-4 h-4" />
-                            <span>中速朗读</span>
+                            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                           </button>
                         </div>
 
-                        {/* Example sentence with synth voice */}
-                        {v.example && (
-                          <div className="space-y-1.5">
-                            <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-bold block">示范例句 Example Case</span>
-                            <div className="bg-zinc-900/60 p-3.5 rounded-xl border border-white/5 flex gap-2.5 items-start">
-                              <p className="text-zinc-200 text-xs italic font-medium leading-relaxed flex-1 font-mono">"{v.example}"</p>
-                              <button 
-                                onClick={() => { playSynthBeep('click'); speakTextEn(v.example); }}
-                                className="w-7 h-7 rounded-lg bg-zinc-950 border border-white/10 flex items-center justify-center text-[#D4FF00] hover:text-white active:scale-90 shrink-0"
-                              >
-                                <Volume2 className="w-3.5 h-3.5" />
-                              </button>
+                        <div className="flex items-center justify-between border-t border-white/5 pt-3.5 mt-1.5">
+                          <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest font-black">SENTENCE FRAGMENT</span>
+                          
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); playSynthBeep('click'); handleShadowingSpeech(textStr); }}
+                              className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-neutral-850 text-[#D4FF00] border border-white/5 flex items-center gap-1 active:scale-95 transition-all text-[10px] font-extrabold"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>慢速朗读</span>
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); playSynthBeep('click'); speakTextEn(textStr); }}
+                              className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-neutral-850 text-white border border-white/5 flex items-center gap-1 active:scale-95 transition-all text-[10px] font-extrabold"
+                            >
+                              <Volume2 className="w-3.5 h-3.5 text-neutral-400" />
+                              <span>朗读</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Immersive phrase waterfall timeline list with left-swipe gestures */
+              <div className="space-y-4">
+                {filteredVocabCollection.map(v => {
+                  let startX = 0;
+                  const isSwiped = swipedVocabId === v.id;
+                  return (
+                    <div key={v.id} className="relative w-full overflow-hidden rounded-2xl">
+                      {/* Swipe Underlay Action Layer */}
+                      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 bg-zinc-950 px-3 z-0">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSwipedVocabId(null);
+                            playSynthBeep('success');
+                            setSharedSubtitleText(`【语感词语卡】${v.word} [${v.phonetic || ""}]\n词性: ${v.partOfSpeech || ""}\n释义: ${v.definitionCn}`);
+                            setSharedSubtitleTranslation(v.example ? `例句: ${v.example}` : "");
+                            setShowSubtitleShareModal(true);
+                          }}
+                          className="h-[88%] px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-colors border border-emerald-500/15"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>分享</span>
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSwipedVocabId(null);
+                            playSynthBeep('success');
+                            setVocabularies(prev => prev.filter(item => item.id !== v.id));
+                          }}
+                          className="h-[88%] px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-colors border border-rose-500/15"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                          <span>删除</span>
+                        </button>
+                      </div>
+
+                      {/* Foreground Card */}
+                      <div 
+                        onTouchStart={(e) => {
+                          startX = e.touches[0].clientX;
+                        }}
+                        onTouchEnd={(e) => {
+                          const deltaX = startX - e.changedTouches[0].clientX;
+                          if (deltaX > 45) {
+                            setSwipedVocabId(v.id);
+                            playSynthBeep('click');
+                          } else if (deltaX < -45) {
+                            if (swipedVocabId === v.id) {
+                              setSwipedVocabId(null);
+                              playSynthBeep('click');
+                            }
+                          }
+                        }}
+                        onMouseDown={(e) => {
+                          startX = e.clientX;
+                        }}
+                        onMouseUp={(e) => {
+                          const deltaX = startX - e.clientX;
+                          if (deltaX > 45) {
+                            setSwipedVocabId(v.id);
+                            playSynthBeep('click');
+                          } else if (deltaX < -45) {
+                            if (swipedVocabId === v.id) {
+                              setSwipedVocabId(null);
+                              playSynthBeep('click');
+                            }
+                          }
+                        }}
+                        onClick={() => {
+                          if (isSwiped) {
+                            setSwipedVocabId(null);
+                          } else {
+                            playSynthBeep('click');
+                            setExpandedVocabId(expandedVocabId === v.id ? null : v.id);
+                          }
+                        }}
+                        className={`bg-[#111113]/80 border rounded-2xl p-5 relative overflow-hidden group hover:border-[#D4FF00]/40 transition-transform duration-300 z-10 ${isSwiped ? "-translate-x-[136px]" : "translate-x-0"} ${expandedVocabId === v.id ? "border-[#D4FF00]/40 bg-zinc-950 shadow-2xl" : "border-white/5 cursor-pointer"}`}
+                      >
+                        {/* Spatial color flag circle */}
+                        <div className="absolute top-5 right-5 flex items-center gap-1.5">
+                          <span className={`w-2.5 h-2.5 rounded-full ${v.color === 'green' ? "bg-emerald-400" : v.color === 'red' ? "bg-rose-500" : "bg-lime-400 neon-glow"}`}></span>
+                          <span className="text-[9px] font-mono text-neutral-600 uppercase font-black">{v.color === 'green' ? '熟识' : v.color === 'red' ? '陌生' : '核心'}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 mb-1.5">
+                          <h3 className="text-xl font-black text-white group-hover:text-[#D4FF00] transition-colors">{v.word}</h3>
+                          <span className="text-neutral-400 font-mono text-xs">{v.phonetic}</span>
+                          <span className="text-[10px] bg-white/5 text-neutral-400 font-bold px-1.5 rounded">{v.partOfSpeech}</span>
+                        </div>
+
+                        <p className="text-neutral-400 text-xs leading-relaxed mb-1.5 font-medium">{v.definitionCn}</p>
+
+                        {v.example && expandedVocabId !== v.id && (
+                          <div className="bg-zinc-950 p-3 rounded-xl border border-white/5 flex gap-2 items-start relative mt-3">
+                            <div className="text-[11px] text-zinc-500 italic flex-1 font-mono">
+                              "{v.example}"
                             </div>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleShadowingSpeech(v.example);
+                              }}
+                              className="w-7 h-7 rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white active:scale-90"
+                              title="慢速朗读"
+                            >
+                              <Volume2 className="w-3.5 h-3.5 text-[#D4FF00]" />
+                            </button>
                           </div>
                         )}
 
-                        {/* Knowledge base references */}
-                        <div className="space-y-2">
-                          <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-bold block mb-1">对应知识库原句 Context From Knowledge Base</span>
-                          {(() => {
-                            const matched = lessons.flatMap(l => 
-                              l.sentences
-                                .filter(s => s.text.toLowerCase().includes(v.word.toLowerCase()))
-                                .map(s => ({ ...s, lessonTitle: l.title }))
-                            );
+                        {/* Highly modular slide up card expanded info context from DB */}
+                        {expandedVocabId === v.id && (
+                          <motion.div 
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-4 pt-4 border-t border-white/5 space-y-4 text-xs font-sans"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {/* Audio pronunciation trigger */}
+                            <div className="flex items-center justify-between bg-zinc-900/40 p-2.5 rounded-xl border border-white/5">
+                              <span className="text-zinc-400 font-mono text-[10px]">系统语音引擎单词朗读</span>
+                              <button 
+                                onClick={() => { playSynthBeep('click'); speakTextEn(v.word); }}
+                                className="bg-zinc-950 hover:bg-zinc-900 p-2 rounded-lg text-[#D4FF00] border border-white/5 flex items-center gap-1.5 active:scale-95 transition-all text-[11px] font-bold"
+                              >
+                                <Volume2 className="w-4 h-4" />
+                                <span>中速朗读</span>
+                              </button>
+                            </div>
 
-                            if (matched.length === 0) {
-                              return (
-                                <div className="text-[10px] text-zinc-650 font-mono italic bg-zinc-950/20 py-2.5 px-3 border border-dashed border-white/5 rounded-xl text-center">
-                                  知识库暂无对应原句收录
+                            {/* Example sentence with synth voice */}
+                            {v.example && (
+                              <div className="space-y-1.5">
+                                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-bold block">示范例句 Example Case</span>
+                                <div className="bg-zinc-900/60 p-3.5 rounded-xl border border-white/5 flex gap-2.5 items-start">
+                                  <p className="text-zinc-200 text-xs italic font-medium leading-relaxed flex-1 font-mono">"{v.example}"</p>
+                                  <button 
+                                    onClick={() => { playSynthBeep('click'); speakTextEn(v.example); }}
+                                    className="w-7 h-7 rounded-lg bg-zinc-950 border border-white/10 flex items-center justify-center text-[#D4FF00] hover:text-white active:scale-90 shrink-0"
+                                  >
+                                    <Volume2 className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
-                              );
-                            }
-
-                            return (
-                              <div className="space-y-2 max-h-40 overflow-y-auto no-scrollbar">
-                                {matched.map((match, mIdx) => (
-                                  <div key={mIdx} className="bg-zinc-900/80 p-3 rounded-xl border border-white/5 flex gap-2.5 items-start">
-                                    <div className="flex-1 space-y-1">
-                                      <span className="text-[8px] font-mono bg-[#D4FF00]/10 text-[#D4FF00] px-1.5 py-0.5 rounded block w-fit shrink-0 uppercase tracking-wide font-black">
-                                        {match.lessonTitle}
-                                      </span>
-                                      <p className="text-zinc-300 font-medium font-sans leading-relaxed text-[11px]">{match.text}</p>
-                                      <p className="text-zinc-500 text-[10px] font-sans leading-none">{match.translationCn}</p>
-                                    </div>
-                                    <button 
-                                      onClick={() => { playSynthBeep('click'); speakTextEn(match.text); }}
-                                      className="w-7 h-7 rounded-lg bg-zinc-950 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white active:scale-95 shrink-0"
-                                    >
-                                      <Volume2 className="w-3.5 h-3.5 text-zinc-300" />
-                                    </button>
-                                  </div>
-                                ))}
                               </div>
-                            );
-                          })()}
-                        </div>
+                            )}
 
-                        {/* Direct HUD trigger check if they want deep dictionary analyze */}
-                        <button 
-                          onClick={() => { playSynthBeep('click'); initiateWordLookup(v.word); }}
-                          className="w-full bg-[#D4FF00]/10 hover:bg-[#D4FF00]/20 border border-[#D4FF00]/30 py-3 rounded-2xl text-[11px] font-black text-[#D4FF00] active:scale-98 transition-transform"
-                        >
-                          🔍 呼起 AI 多维度语篇拆解 HUD
-                        </button>
-                      </motion.div>
-                    )}
-                  </div>
-                ))}
+                            {/* Knowledge base references */}
+                            <div className="space-y-2">
+                              <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-bold block mb-1">对应知识库原句 Context From Knowledge Base</span>
+                              {(() => {
+                                const matched = lessons.flatMap(l => 
+                                  l.sentences
+                                    .filter(s => s.text.toLowerCase().includes(v.word.toLowerCase()))
+                                    .map(s => ({ ...s, lessonTitle: l.title }))
+                                );
+
+                                if (matched.length === 0) {
+                                  return (
+                                    <div className="text-[10px] text-zinc-650 font-mono italic bg-zinc-950/20 py-2.5 px-3 border border-dashed border-white/5 rounded-xl text-center">
+                                      知识库暂无对应原句收录
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="space-y-2 max-h-40 overflow-y-auto no-scrollbar">
+                                    {matched.map((match, mIdx) => (
+                                      <div key={mIdx} className="bg-zinc-900/80 p-3 rounded-xl border border-white/5 flex gap-2.5 items-start">
+                                        <div className="flex-1 space-y-1">
+                                          <span className="text-[8px] font-mono bg-[#D4FF00]/10 text-[#D4FF00] px-1.5 py-0.5 rounded block w-fit shrink-0 uppercase tracking-wide font-black">
+                                            {match.lessonTitle}
+                                          </span>
+                                          <p className="text-zinc-300 font-medium font-sans leading-relaxed text-[11px]">{match.text}</p>
+                                          <p className="text-zinc-500 text-[10px] font-sans leading-none">{match.translationCn}</p>
+                                        </div>
+                                        <button 
+                                          onClick={() => { playSynthBeep('click'); speakTextEn(match.text); }}
+                                          className="w-7 h-7 rounded-lg bg-zinc-950 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white active:scale-95 shrink-0"
+                                        >
+                                          <Volume2 className="w-3.5 h-3.5 text-zinc-300" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            {/* Direct HUD HUD dictionary analyze */}
+                            <button 
+                              onClick={() => { playSynthBeep('click'); initiateWordLookup(v.word); }}
+                              className="w-full bg-[#D4FF00]/10 hover:bg-[#D4FF00]/20 border border-[#D4FF00]/30 py-3 rounded-2xl text-[11px] font-black text-[#D4FF00] active:scale-98 transition-transform"
+                            >
+                              🔍 呼起 AI 多维度语篇拆解 HUD
+                            </button>
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Tab 3: ⚙️ 禅庭后勤系统 (System) Dashboard L1 */}
+          {/* Tab 3: ⚙️ 禅庭 (System) Dashboard L1 */}
           <div className={`flex-1 flex flex-col px-5 overflow-y-auto no-scrollbar pb-24 ${currentTab === 'system' ? "" : "hidden"}`}>
             
             <div className="py-4">
               <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black block">System Logistics</span>
-              <h2 className="text-3xl font-black text-white tracking-tight">系统后勤部</h2>
+              <h2 className="text-3xl font-black text-white tracking-tight">禅庭</h2>
             </div>
 
             {/* User credentials ID (Silent auto assigned) */}
             <div className="bg-[#111113] border border-white/5 rounded-2xl p-5 flex items-center justify-between mt-4">
               <div>
-                <div className="text-[9px] font-mono text-[#D4FF00] tracking-widest uppercase font-black mb-1">ANON_NEURAL_LINK</div>
-                <div className="text-white text-base font-black font-mono">ANON_8F9A_V6.2</div>
-                <span className="text-[10px] text-neutral-500 block">UUID 本机安全存储。无任何流转踪迹。</span>
+                {isWechatBound ? (
+                  <div className="flex items-center gap-3">
+                    <img 
+                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" 
+                      alt="Avatar" 
+                      className="w-11 h-11 rounded-full border border-white/10 shrink-0 object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div>
+                      <div className="text-[9px] font-mono text-[#D4FF00] tracking-widest uppercase font-black">WECHAT_AUTHORIZED</div>
+                      <div className="text-white text-base font-black font-sans">{wechatNickname}</div>
+                      <span className="text-[10px] text-neutral-500 block">云备份同步已激活</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest uppercase font-black mb-1">ANON_NEURAL_LINK</div>
+                    <div className="text-white text-base font-black font-mono">ANON_8F9A_V6.2</div>
+                    <span className="text-[10px] text-neutral-500 block">UUID 本机安全存储。未登录关联。</span>
+                  </div>
+                )}
               </div>
               <button 
                 onClick={() => {
                   playSynthBeep('success');
-                  setIsWechatBound(prev => {
-                    const next = !prev;
-                    localStorage.setItem("lingua_wechat_bound", next ? "true" : "false");
-                    return next;
-                  });
+                  if (!isWechatBound) {
+                    setLoginRequiredReason("微信同步开通🐾：授权绑定后，即可打通云数据链路，终身留存您的语感战利品！");
+                    setShowLoginModal(true);
+                  } else {
+                    setIsWechatBound(false);
+                    localStorage.setItem("lingua_wechat_bound", "false");
+                  }
                 }}
                 className={`py-2 px-3.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${isWechatBound ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" : "bg-white text-black active:scale-95"}`}
               >
                 {isWechatBound ? (
                   <>
-                    <MessageCircle className="w-4 h-4 text-emerald-400" /> 已同步云备份
+                    <MessageCircle className="w-4 h-4 text-emerald-400" /> 注销登录
                   </>
                 ) : (
                   <>
-                    <MessageCircle className="w-4 h-4" /> 关联微信同步
+                    <MessageCircle className="w-4 h-4" /> 微信登录
                   </>
                 )}
               </button>
             </div>
 
-            {/* Dynamic SM-2 Flashcard Roulette Blindbox drawer block */}
-            <div className="mt-6 bg-[#111113] border border-white/5 rounded-3xl p-5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-lime-400/10 filter blur-3xl rounded-full"></div>
-              
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black">Memory SM-2 Flash Card</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            {/* Quick Access to 复习闪卡 instead of legacy blocks */}
+            <div 
+              onClick={() => {
+                playSynthBeep('click');
+                setShowFlashcardSpace(true);
+              }}
+              className="mt-6 bg-gradient-to-r from-zinc-950 to-[#111113] border border-[#D4FF00]/15 hover:border-[#D4FF00]/50 rounded-[1.5rem] p-4 flex items-center justify-between cursor-pointer hover:shadow-[0_0_20px_rgba(212,255,0,0.06)] active:scale-98 transition-all group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-9 h-9 rounded-full bg-[#D4FF00]/10 flex items-center justify-center text-[#D4FF00] border border-[#D4FF00]/20 group-hover:scale-105 transition-transform shrink-0">
+                  <Layers className="w-4 h-4 shadow-[0_0_8px_#D4FF00]" />
+                </div>
+                <div>
+                  <h4 className="text-white text-[13px] font-black group-hover:text-[#D4FF00] transition-colors leading-tight">
+                    今日复习目标 {currentFlashcardIndex}/{getReviewQueue().length}项
+                  </h4>
+                  <p className="text-zinc-500 text-[10px] font-medium leading-none font-sans mt-1.5">进入复习闪卡，标记单词/卡片掌握情况</p>
+                </div>
               </div>
 
-              <h3 className="text-white font-black text-lg mb-1">语感记忆闪卡</h3>
-              <p className="text-neutral-500 text-xs mb-5 font-normal">基于 SM-2 复习算法，随机检索一个记忆薄弱词条进行专注速记。</p>
-
-              {blindCard ? (
-                <div className="bg-zinc-950 p-4 rounded-2xl border border-white/5 mb-5 relative min-h-[100px] flex flex-col justify-between">
-                  <div className="absolute top-4 right-4 w-1.5 h-1.5 rounded-full bg-[#D4FF00] box-glow"></div>
-                  <div>
-                    <span className="text-[10px] font-mono font-bold uppercase text-neutral-500 block">{blindCard.partOfSpeech === 'noun' ? '名词 ' : blindCard.partOfSpeech === 'verb' ? '动词 ' : blindCard.partOfSpeech === 'adj' ? '形容词 ' : '副词 '}{blindCard.partOfSpeech}</span>
-                    <span className="text-xl font-black text-white block mt-0.5">{blindCard.word}</span>
-                    <span className="text-neutral-400 text-xs font-mono block mt-1">[{blindCard.phonetic}]</span>
-                    <p className="text-white text-sm font-bold mt-2 font-mono leading-relaxed">{blindCard.definitionCn}</p>
-                  </div>
-                  {blindCard.example && (
-                    <p className="text-neutral-400 text-xs italic mt-3 bg-zinc-900 py-1.5 px-3 rounded-lg border border-neutral-800">"{blindCard.example}"</p>
-                  )}
-                </div>
-              ) : (
-                <div className="bg-zinc-950/50 text-center p-8 rounded-2xl border border-dashed border-white/5 mb-5">
-                  <span className="text-zinc-600 text-xs font-mono">当前暂无收录闪卡。请点击下方抽取。</span>
-                </div>
-              )}
-
-              <button 
-                onClick={rollInspirationBlindBox}
-                disabled={isRouletteRolling || vocabularies.length === 0}
-                className="w-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 py-3 rounded-xl text-xs font-black text-[#D4FF00] uppercase tracking-wider flex items-center justify-center gap-2 active:scale-98 transition-transform disabled:opacity-40"
-              >
-                {isRouletteRolling ? (
-                  <>
-                    <RefreshCcw className="w-4 h-4 animate-spin text-[#D4FF00]" /> 正在检索生词库节点...
-                  </>
-                ) : (
-                  <>
-                    <span>🎲 随机抽取温习闪卡</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-1 bg-[#D4FF00]/10 text-[#D4FF00] text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-xl border border-[#D4FF00]/20 group-hover:bg-[#D4FF00] group-hover:text-black transition-colors shrink-0">
+                <span>进入复习</span>
+                <ChevronRight className="w-3 h-3 font-bold" />
+              </div>
             </div>
 
-            {/* Revamped Review Planner & VIP Subscription (Replacing cognitive preferences switches) */}
+            {/* VIP Subscription Card */}
             <div className="mt-8 space-y-6">
-              {/* Part 1: Review Planner */}
               <div>
-                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black mb-3 pl-1 block">Review Planner - 智能复习温习计划</span>
+                <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black mb-3 pl-1 block">Cyber Membership - 会员订阅状态</span>
                 
-                <div className="bg-[#111113] border border-white/5 rounded-2xl p-4 space-y-4">
-                  {/* Selector of Plan Tiers */}
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['ebbinghaus', 'flash', 'deep'] as const).map(plan => {
-                      const label = plan === 'ebbinghaus' ? '艾宾浩斯' : plan === 'flash' ? '快速精记' : '听力影子';
-                      const desc = plan === 'ebbinghaus' ? '抗遗忘曲线' : plan === 'flash' ? '高密集冲刺' : '声波影子复刻';
-                      const isSel = activeReviewPlan === plan;
-                      return (
-                        <button 
-                          key={plan}
-                          onClick={() => { playSynthBeep('click'); setActiveReviewPlan(plan); }}
-                          className={`p-3 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-1.5 ${isSel ? "bg-[#D4FF00]/10 border-[#D4FF00]" : "bg-neutral-900 border-transparent text-zinc-500 hover:text-zinc-300"}`}
-                        >
-                          <span className={`text-[11px] font-black tracking-tight ${isSel ? "text-white" : "text-zinc-400"}`}>{label}</span>
-                          <span className="text-[7.5px] font-medium leading-none block text-zinc-500 tracking-tight">{desc}</span>
-                        </button>
-                      );
-                    })}
+                {isPremiumUser ? (
+                  <div className="bg-gradient-to-br from-amber-400/20 via-purple-500/10 to-transparent border border-amber-400/30 rounded-2xl p-5 relative overflow-hidden shadow-lg shadow-amber-950/10">
+                    <div className="absolute top-4 right-4 w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_10px_#F59E0B]" />
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="w-5 h-5 fill-amber-400 text-amber-400" />
+                      <span className="text-white text-base font-black tracking-tight">👑 CYBER 至尊极客会员</span>
+                    </div>
+                    <p className="text-zinc-400 text-xs leading-relaxed font-medium">特权状态：全套 AI 音像句法语序多维拆解、无任何约束高速听写专精系统已对齐启动。</p>
+                    <div className="mt-4 pt-3.5 border-t border-white/5 flex items-center justify-between text-[9px] text-zinc-500 font-mono tracking-wider">
+                      <span>PLAN: CYBER SUPREME GEEK</span>
+                      <span>STATUS: ACTIVE</span>
+                    </div>
                   </div>
-
-                  {/* Target Adjuster */}
-                  <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-white/5">
+                ) : (
+                  <div className="bg-[#111113] border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-mono text-[#D4FF00] uppercase font-bold tracking-wider block">每日单词温习目标</span>
-                      <span className="text-zinc-400 text-xs mt-0.5 block">今日进度: {reviewWordsCompletedToday} / {reviewWordsDailyTarget} 词</span>
+                      <div className="flex items-center gap-1.5 mb-2.5">
+                        <Zap className="w-4 h-4 text-zinc-550 fill-zinc-500" />
+                        <span className="text-white text-sm font-bold block">CYBER 至尊极客会员</span>
+                      </div>
+                      
+                      {/* Subscription Tiers overview */}
+                      <div className="grid grid-cols-3 gap-2.5 mb-4">
+                        <div className="bg-zinc-950 p-2.5 rounded-xl border border-white/5 text-center">
+                          <span className="text-[10px] text-zinc-500 font-mono block">周会员</span>
+                          <span className="text-white text-xs font-bold block mt-1">¥7.00/周</span>
+                        </div>
+                        <div className="bg-zinc-950 p-2.5 rounded-xl border border-white/5 text-center relative overflow-hidden">
+                          <div className="absolute top-0 right-0 bg-[#D4FF00] text-black text-[6px] font-black tracking-widest px-1 py-0.5 transform rotate-12 origin-top-right scale-75">TRIAL</div>
+                          <span className="text-[10px] text-zinc-500 font-mono block">月会员</span>
+                          <span className="text-white text-xs font-bold block mt-1">¥19.90/月</span>
+                        </div>
+                        <div className="bg-zinc-950 p-2.5 rounded-xl border border-white/5 text-center relative">
+                          <span className="text-[10px] text-zinc-500 font-mono block">年会员</span>
+                          <span className="text-white text-xs font-bold block mt-1">¥168.00/年</span>
+                        </div>
+                      </div>
+
+                      {/* Trial highlight */}
+                      {isNewUserWithinOneMonth() && (
+                        <div className="bg-amber-400/10 border border-amber-400/20 p-3.5 rounded-xl mb-4 text-[11px] text-amber-300">
+                          <span className="font-bold">✨ 新用户独享 (首周特惠试用)</span>
+                          <p className="mt-1 leading-snug">注册前一个月内：订阅月度会员仅需 <span className="font-black text-white">¥0.90</span> 试用一周；订阅年度会员仅需 <span className="font-black text-white">¥0.09</span> 试用一周！</p>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 bg-zinc-950/80 p-3.5 rounded-xl border border-white/5 text-[11px] text-neutral-400 font-sans">
+                        <p className="text-white/80 font-bold mb-1">📋 会员权益与免费限制：</p>
+                        <p>• 订阅会员享有全部句法词组收藏、精准细拆解与不限次音视频研读；</p>
+                        <p>• 无会员时限学习您自定导入的 <span className="text-[#D4FF00] font-bold">3 个</span> 学习资料；</p>
+                        <p>• 无会员时新导入的内容每次学习研读 <span className="text-[#D4FF00] font-bold font-mono">限前 1 分钟</span> 部分。</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => {
-                          playSynthBeep('click');
-                          setReviewWordsDailyTarget(prev => Math.max(5, prev - 5));
-                        }}
-                        className="w-7 h-7 rounded-lg bg-neutral-900 border border-neutral-850 flex items-center justify-center text-white active:scale-90"
-                      >
-                        -
-                      </button>
-                      <span className="font-mono text-sm font-black text-white w-6 text-center">{reviewWordsDailyTarget}</span>
-                      <button 
-                        onClick={() => {
-                          playSynthBeep('click');
-                          setReviewWordsDailyTarget(prev => Math.min(100, prev + 5));
-                        }}
-                        className="w-7 h-7 rounded-lg bg-neutral-900 border border-neutral-850 flex items-center justify-center text-white active:scale-90"
-                      >
-                        +
-                      </button>
+
+                    <button 
+                      onClick={() => { playSynthBeep('click'); setShowPaymentModal(true); }}
+                      className="w-full bg-[#D4FF00] hover:bg-[#cbf500] text-black font-black text-xs py-3 rounded-xl tracking-wider uppercase mt-4 flex items-center justify-center gap-1.5 active:scale-98 transition-transform shadow-[0_4px_12px_rgba(212,255,0,0.15)]"
+                    >
+                      <Sparkles className="w-4 h-4 fill-black" /> 立即激发并订阅 VIP 会员 (最省 0.09 元)
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* User credentials ID (Silent auto assigned) */}
+            <div className="bg-[#111113] border border-white/5 rounded-2xl p-5 flex items-center justify-between mt-4">
+              <div>
+                {isWechatBound ? (
+                  <div className="flex items-center gap-3">
+                    <img 
+                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" 
+                      alt="Avatar" 
+                      className="w-11 h-11 rounded-full border border-white/10 shrink-0 object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div>
+                      <div className="text-[9px] font-mono text-[#D4FF00] tracking-widest uppercase font-black">WECHAT_AUTHORIZED</div>
+                      <div className="text-white text-base font-black font-sans">{wechatNickname}</div>
+                      <span className="text-[10px] text-neutral-500 block font-sans">云备份同步已激活</span>
                     </div>
                   </div>
+                ) : (
+                  <div>
+                    <div className="text-[9px] font-mono text-zinc-500 tracking-widest uppercase font-black mb-1">ANON_NEURAL_LINK</div>
+                    <div className="text-white text-base font-black font-mono">ANON_8F9A_V6.2</div>
+                    <span className="text-[10px] text-neutral-500 block font-sans">UUID 本机安全存储。未登录关联。</span>
+                  </div>
+                )}
+              </div>
+              <button 
+                onClick={() => {
+                  playSynthBeep('success');
+                  if (!isWechatBound) {
+                    setLoginRequiredReason("微信同步开通🐾：授权绑定后，即可打通云数据链路，终身留存您的语感战利品！");
+                    setShowLoginModal(true);
+                  } else {
+                    setIsWechatBound(false);
+                    localStorage.setItem("lingua_wechat_bound", "false");
+                  }
+                }}
+                className={`py-2 px-3.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${isWechatBound ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" : "bg-white text-black active:scale-95"}`}
+              >
+                {isWechatBound ? (
+                  <>
+                    <MessageCircle className="w-4 h-4 text-emerald-400" /> 注销登录
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="w-4 h-4" /> 微信登录
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Quick Access to 复习闪卡 instead of legacy blocks */}
+            <div 
+              onClick={() => {
+                playSynthBeep('click');
+                setShowFlashcardSpace(true);
+              }}
+              className="mt-6 bg-gradient-to-r from-zinc-950 to-[#111113] border border-[#D4FF00]/15 hover:border-[#D4FF00]/50 rounded-[1.5rem] p-4 flex items-center justify-between cursor-pointer hover:shadow-[0_0_20px_rgba(212,255,0,0.06)] active:scale-98 transition-all group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-9 h-9 rounded-full bg-[#D4FF00]/10 flex items-center justify-center text-[#D4FF00] border border-[#D4FF00]/20 group-hover:scale-105 transition-transform shrink-0">
+                  <Layers className="w-4 h-4 shadow-[0_0_8px_#D4FF00]" />
+                </div>
+                <div>
+                  <h4 className="text-white text-[13px] font-black group-hover:text-[#D4FF00] transition-colors leading-tight">
+                    今日复习目标 {currentFlashcardIndex}/{getReviewQueue().length}项
+                  </h4>
+                  <p className="text-zinc-500 text-[10px] font-medium leading-none font-sans mt-1.5">进入复习闪卡，标记单词/卡片掌握情况</p>
                 </div>
               </div>
 
+              <div className="flex items-center gap-1 bg-[#D4FF00]/10 text-[#D4FF00] text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-xl border border-[#D4FF00]/20 group-hover:bg-[#D4FF00] group-hover:text-black transition-colors shrink-0">
+                <span>进入复习</span>
+                <ChevronRight className="w-3 h-3 font-bold" />
+              </div>
+            </div>
+
+            {/* VIP Subscription Card */}
+            <div className="mt-8 space-y-6">
               {/* Part 2: VIP Subscription Card */}
               <div>
                 <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black mb-3 pl-1 block">Cyber Membership - 会员订阅状态</span>
@@ -2642,28 +3407,30 @@ export default function App() {
         </div>
 
         {/* Floating Capsule navigation island docked at bottom */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[90%] h-16 bg-black/40 border border-white/10 backdrop-blur-3xl rounded-full flex justify-around items-center px-4 z-40 shadow-xl">
-          <button 
-            onClick={() => { playSynthBeep('click'); setCurrentTab('listen'); }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'listen' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
-          >
-            <Headphones className="w-5 h-5" />
-          </button>
-          
-          <button 
-            onClick={() => { playSynthBeep('click'); setCurrentTab('vault'); }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'vault' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
-          >
-            <Layers className="w-5 h-5" />
-          </button>
+        {!activeLessonId && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[90%] h-16 bg-black/40 border border-white/10 backdrop-blur-3xl rounded-full flex justify-around items-center px-4 z-40 shadow-xl">
+            <button 
+              onClick={() => { playSynthBeep('click'); setCurrentTab('listen'); }}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'listen' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
+            >
+              <Headphones className="w-5 h-5" />
+            </button>
+            
+            <button 
+              onClick={() => { playSynthBeep('click'); setCurrentTab('vault'); }}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'vault' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
+            >
+              <Layers className="w-5 h-5" />
+            </button>
 
-          <button 
-            onClick={() => { playSynthBeep('click'); setCurrentTab('system'); }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'system' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
-          >
-            <Hexagon className="w-5 h-5" />
-          </button>
-        </div>
+            <button 
+              onClick={() => { playSynthBeep('click'); setCurrentTab('system'); }}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${currentTab === 'system' ? "bg-white/10 text-[#D4FF00] shadow-[0_0_15px_rgba(212,255,0,0.15)]" : "text-neutral-500 hover:text-white"}`}
+            >
+              <Hexagon className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         {/* L3 FULL OVERLAY: Cognitive Custom URL Scan Radar Scanner screen overlay */}
         <AnimatePresence>
@@ -2745,13 +3512,13 @@ export default function App() {
                       onClick={() => { playSynthBeep('click'); setActiveImportTab('url'); }}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${activeImportTab === 'url' ? "bg-white/10 text-white shadow-md font-bold" : "text-neutral-500 hover:text-white"}`}
                     >
-                      粘贴流媒体
+                      URL导入
                     </button>
                     <button 
                       onClick={() => { playSynthBeep('click'); setActiveImportTab('media'); }}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${activeImportTab === 'media' ? "bg-white/10 text-white shadow-md font-bold" : "text-neutral-500 hover:text-white"}`}
                     >
-                      本地音视频
+                      导入本地资源
                     </button>
                     <button 
                       onClick={() => { playSynthBeep('click'); setActiveImportTab('epub'); }}
@@ -2884,32 +3651,58 @@ export default function App() {
                         <span className="px-3 py-1 bg-neutral-900 rounded-full text-[9px] font-mono text-neutral-400 block w-max mb-3 border border-zinc-900 uppercase tracking-widest font-black">
                           LOCAL FILE INGRESS
                         </span>
-                        <h3 className="text-white text-xl font-black mb-1">导入本地媒体原电控文件</h3>
-                        <p className="text-neutral-505 text-xs mb-6">支持 MP3, WAV, M4A, MP4 等本地方便自动 Whisper 转录文字翻译极速破译。</p>
+                        <h3 className="text-white text-xl font-black mb-1">导入本地资源</h3>
+                        <p className="text-neutral-505 text-xs mb-6">支持导入手机或电脑本地音视频文件，使用云端智能转录对齐。</p>
 
                         {!localMediaFile ? (
-                          <div className="relative border border-dashed border-zinc-805 bg-[#111113]/20 hover:bg-[#111113]/40 rounded-3xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[160px]">
-                            <input 
-                              type="file" 
-                              accept="audio/*,video/*"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  playSynthBeep('success');
-                                  setLocalMediaFile({
-                                    name: file.name,
-                                    size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-                                    type: file.type
-                                  });
-                                }
-                              }}
-                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                            />
-                            <div className="w-12 h-12 rounded-full bg-neutral-900 border border-white/5 flex items-center justify-center text-emerald-400 mb-3 group-hover:scale-110 duration-300">
+                          <div className="relative border border-dashed border-zinc-805 bg-[#111113]/20 hover:bg-[#111113]/40 rounded-3xl p-8 flex flex-col items-center justify-center text-center transition-all group min-h-[160px]">
+                            <div className="w-12 h-12 rounded-full bg-neutral-900 border border-white/5 flex items-center justify-center text-emerald-400 mb-4 group-hover:scale-110 duration-300">
                               <Volume2 className="w-5 h-5" />
                             </div>
-                            <span className="block text-white text-xs font-bold">轻点或拖曳放入本地音视频</span>
-                            <span className="block text-neutral-500 text-[9px] font-mono mt-1">SUPPORT AUDIO VIDEO DRAG & DROP</span>
+                            <span className="block text-zinc-500 text-[10px] font-mono tracking-wider mb-4 uppercase">请选择导入媒介 SELECT DIRECT MEDIA COGNITIVE CHANNEL</span>
+                            
+                            <div className="flex gap-4 w-full z-10 justify-center">
+                              <button className="relative px-3 py-2 bg-neutral-900 hover:bg-neutral-850 border border-white/10 hover:border-[#D4FF00]/40 rounded-xl text-white text-[11.5px] font-bold flex items-center gap-1.5 transition-all">
+                                <FileAudio className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>从文件导入</span>
+                                <input 
+                                  type="file" 
+                                  accept="audio/*,video/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      playSynthBeep('success');
+                                      setLocalMediaFile({
+                                        name: file.name,
+                                        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                                        type: file.type
+                                      });
+                                    }
+                                  }}
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                />
+                              </button>
+                              <button className="relative px-3 py-2 bg-neutral-900 hover:bg-neutral-850 border border-white/10 hover:border-[#D4FF00]/40 rounded-xl text-white text-[11.5px] font-bold flex items-center gap-1.5 transition-all">
+                                <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                                <span>从相册导入</span>
+                                <input 
+                                  type="file" 
+                                  accept="video/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      playSynthBeep('success');
+                                      setLocalMediaFile({
+                                        name: file.name,
+                                        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                                        type: file.type
+                                      });
+                                    }
+                                  }}
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                />
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="bg-neutral-950 border border-emerald-955/40 p-5 rounded-3xl relative">
@@ -3160,13 +3953,54 @@ export default function App() {
                           initial={{ opacity: 0, y: 5 }}
                           animate={{ opacity: 1, y: 0 }}
                         >
-                          <div>
-                            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold">
-                              {activeBlock.role === 'subject' ? '主语 Subject' : activeBlock.role === 'verb' ? '谓语动词 Verb' : activeBlock.role === 'object' ? '宾语 Object' : '修饰成分 Modifier'} ({activeBlock.roleCn})
-                            </span>
-                            <h4 className="text-white text-lg font-black my-1">{activeBlock.token}</h4>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest font-bold block">
+                                {activeBlock.role === 'subject' ? '主语 Subject' : activeBlock.role === 'verb' ? '谓语动词 Verb' : activeBlock.role === 'object' ? '宾语 Object' : '修饰成分 Modifier'} ({activeBlock.roleCn})
+                              </span>
+                              <h4 className="text-white text-lg font-black mt-1 leading-snug">{activeBlock.token}</h4>
+                            </div>
+                            
+                            {(() => {
+                              const isCollected = vocabularies.some(v => v.word.toLowerCase() === activeBlock.token.toLowerCase());
+                              return (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    playSynthBeep('click');
+                                    if (isCollected) {
+                                      setVocabularies(prev => prev.filter(v => v.word.toLowerCase() !== activeBlock.token.toLowerCase()));
+                                    } else {
+                                      const now = Date.now();
+                                      setVocabularies(prev => [...prev, {
+                                        id: `vocab-scanned-${now}`,
+                                        word: activeBlock.token,
+                                        phonetic: "/.../",
+                                        partOfSpeech: activeBlock.role === 'subject' ? 'n.' : activeBlock.role === 'verb' ? 'v.' : activeBlock.role === 'object' ? 'pron.' : 'adj./adv.',
+                                        definition: activeBlock.explanation,
+                                        definitionCn: activeBlock.explanation,
+                                        example: "",
+                                        color: 'yellow',
+                                        createdAt: now
+                                      }]);
+                                      setShowRewardParticles(true);
+                                      setTimeout(() => setShowRewardParticles(false), 1500);
+                                    }
+                                  }}
+                                  className={`p-2.5 rounded-xl border flex items-center justify-center gap-1.5 active:scale-90 transition-all text-[10px] font-bold ${
+                                    isCollected 
+                                      ? "bg-[#D4FF00]/10 text-[#D4FF00] border-[#D4FF00]/30" 
+                                      : "bg-zinc-855/60 hover:bg-zinc-800 text-zinc-400 border-white/5"
+                                  }`}
+                                  title={isCollected ? "点击取消收藏此词组" : "点击加入生词瀑布流收藏"}
+                                >
+                                  <Star className={`w-3.5 h-3.5 ${isCollected ? "fill-[#D4FF00]" : ""}`} />
+                                  <span>{isCollected ? "已收藏" : "收藏词组"}</span>
+                                </button>
+                              );
+                            })()}
                           </div>
-                          <p className="text-neutral-400 text-xs leading-relaxed font-semibold mt-2">{activeBlock.explanation}</p>
+                          <p className="text-neutral-400 text-xs leading-relaxed font-semibold mt-2.5">{activeBlock.explanation}</p>
                           <div className="flex gap-2.5 mt-4">
                             <span className="text-[9px] font-mono text-[#D4FF00] bg-[#D4FF00]/15 px-2 py-0.5 rounded uppercase">智能句法校验器</span>
                           </div>
@@ -3387,12 +4221,33 @@ export default function App() {
                             >
                               <X className="w-6 h-6" />
                             </button>
-                            <button 
-                              onClick={() => saveWordToNexus(currentDef.word)}
-                              className="flex-1 bg-white hover:bg-neutral-100 text-black rounded-[1.5rem] font-black text-base flex justify-center items-center gap-2 active:scale-95 shadow-xl select-none"
-                            >
-                              <Zap className="w-5 h-5 fill-black" /> Save to Nexus
-                            </button>
+                            {(() => {
+                              const isSaved = vocabularies.some(v => v.word.toLowerCase() === currentDef.word.toLowerCase());
+                              return (
+                                <button 
+                                  onClick={() => {
+                                    if (isSaved) {
+                                      // Toggle or do nothing beautifully
+                                      playSynthBeep('click');
+                                      setVocabularies(prev => prev.filter(v => v.word.toLowerCase() !== currentDef.word.toLowerCase()));
+                                    } else {
+                                      saveWordToNexus(currentDef.word);
+                                    }
+                                  }}
+                                  className={`flex-1 rounded-[1.5rem] font-black text-base flex justify-center items-center gap-2 active:scale-95 shadow-xl select-none transition-all ${isSaved ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-white text-black hover:bg-neutral-100"}`}
+                                >
+                                  {isSaved ? (
+                                    <>
+                                      <Check className="w-5 h-5 text-emerald-400" /> 已收藏
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap className="w-5 h-5 fill-black" /> 收藏生词
+                                    </>
+                                  )}
+                                </button>
+                              );
+                            })()}
                           </div>
                         </motion.div>
                       );
@@ -3417,7 +4272,7 @@ export default function App() {
               <div className="p-6 border-b border-white/5 flex items-center justify-between">
                 <div>
                   <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest font-black block">Library Channels Archive</span>
-                  <h3 className="text-xl font-black text-white">全部学习资源</h3>
+                  <h3 className="text-xl font-black text-white">我的语感岛</h3>
                 </div>
                 {/* Click down button to collapse */}
                 <button 
@@ -3496,34 +4351,593 @@ export default function App() {
                     );
                   }
 
-                  return filtered.map(lesson => (
-                    <div 
-                      key={lesson.id}
-                      onClick={() => {
-                        playSynthBeep('click');
-                        selectActiveLesson(lesson.id);
-                        setShowAllLessonsModal(false);
-                      }}
-                      className="bg-[#111113]/80 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 transition-colors relative overflow-hidden active:scale-98"
-                    >
-                      <div className="flex items-center gap-3.5 overflow-hidden">
-                        <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-white/10 flex items-center justify-center text-white shrink-0 relative overflow-hidden">
-                          <img src={lesson.coverImage} className="absolute inset-0 w-full h-full object-cover opacity-20" alt="" />
-                          <div className="relative z-10 text-lime-400">
-                            {lesson.contentType === "video" ? <Play className="w-4 h-4 fill-current" /> : lesson.contentType === "epub" ? <BookOpen className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
-                          </div>
+                  return filtered.map(lesson => {
+                    let startX = 0;
+                    const isSwiped = swipedLessonId === lesson.id;
+                    return (
+                      <div key={lesson.id} className="relative w-full overflow-hidden rounded-2xl bg-[#111113]/30">
+                        {/* Swipe Underlay Action Layer */}
+                        <div className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 bg-zinc-950 px-2.5 z-0">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSwipedLessonId(null);
+                              setActiveActionsLessonId(lesson.id);
+                              setShowShareModal('doc');
+                              playSynthBeep('success');
+                            }}
+                            className="h-[88%] px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-all border border-emerald-500/15"
+                          >
+                            <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>分享</span>
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSwipedLessonId(null);
+                              deleteLesson(lesson.id, e);
+                            }}
+                            className="h-[88%] px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-[10px] rounded-xl flex flex-col justify-center items-center gap-1 min-w-[56px] transition-all border border-rose-500/15"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                            <span>删除</span>
+                          </button>
                         </div>
-                        <div className="overflow-hidden">
-                          <span className="text-white text-sm font-bold block truncate max-w-[220px]">{lesson.title}</span>
-                          <div className="flex items-center gap-2 text-[9px] font-mono text-neutral-500 mt-1 uppercase">
-                            <span>{lesson.contentType}</span>
-                            <span>•</span>
-                            <span>{lesson.durationOrPages}</span>
+
+                        {/* Foreground Lesson Card */}
+                        <div 
+                          onClick={() => {
+                            if (isSwiped) {
+                              setSwipedLessonId(null);
+                            } else {
+                              playSynthBeep('click');
+                              selectActiveLesson(lesson.id);
+                              setShowAllLessonsModal(false);
+                            }
+                          }}
+                          onTouchStart={(e) => {
+                            startX = e.touches[0].clientX;
+                          }}
+                          onTouchEnd={(e) => {
+                            const deltaX = startX - e.changedTouches[0].clientX;
+                            if (deltaX > 45) {
+                              setSwipedLessonId(lesson.id);
+                              playSynthBeep('click');
+                            } else if (deltaX < -45) {
+                              if (swipedLessonId === lesson.id) {
+                                setSwipedLessonId(null);
+                                playSynthBeep('click');
+                              }
+                            }
+                          }}
+                          onMouseDown={(e) => {
+                            startX = e.clientX;
+                          }}
+                          onMouseUp={(e) => {
+                            const deltaX = startX - e.clientX;
+                            if (deltaX > 45) {
+                              setSwipedLessonId(lesson.id);
+                              playSynthBeep('click');
+                            } else if (deltaX < -45) {
+                              if (swipedLessonId === lesson.id) {
+                                setSwipedLessonId(null);
+                                playSynthBeep('click');
+                              }
+                            }
+                          }}
+                          className={`bg-[#111113]/90 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 relative z-10 transition-transform duration-300 ${isSwiped ? "-translate-x-[136px]" : "translate-x-0"}`}
+                        >
+                          <div className="flex items-center gap-3.5 overflow-hidden flex-1">
+                            <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-white/10 flex items-center justify-center text-white shrink-0 relative overflow-hidden">
+                              <img src={lesson.coverImage} className="absolute inset-0 w-full h-full object-cover opacity-20" alt="" />
+                              <div className="relative z-10 text-lime-400">
+                                {lesson.contentType === "video" ? <Play className="w-4 h-4 fill-current" /> : lesson.contentType === "epub" ? <BookOpen className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
+                              </div>
+                            </div>
+                            <div className="overflow-hidden flex-1 pr-2">
+                              <span className="text-white text-sm font-bold block truncate max-w-[180px]">{lesson.title}</span>
+                              <div className="flex items-center gap-2 text-[9px] font-mono text-neutral-500 mt-1 uppercase">
+                                <span>{lesson.contentType}</span>
+                                <span>•</span>
+                                <span>{lesson.durationOrPages}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] font-mono font-bold text-neutral-400 bg-white/5 px-2 py-1 rounded">
+                              {lesson.progress}%
+                            </span>
+                            <span className="text-zinc-650 text-[10px] font-mono select-none">左滑 ➜</span>
                           </div>
                         </div>
                       </div>
+                    );
+                  });
+                })()}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* WeChat Share Bottom Action Drawer */}
+        <AnimatePresence>
+          {activeActionsLessonId && (
+            <>
+              {/* Back backdrop filter mask */}
+              <motion.div 
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[90]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setActiveActionsLessonId(null)}
+              />
+              
+              {/* Sliding Bottom Actions Cabinet Sheet */}
+              <motion.div 
+                className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#0d0d0f]/95 border-t border-white/10 rounded-t-[2.5rem] z-[100] p-6 shadow-2xl font-sans"
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 220 }}
+              >
+                {/* Visual drag hint bar */}
+                <div className="w-12 h-1.5 bg-neutral-800 rounded-full mx-auto mb-5" />
+                
+                <div className="mb-5">
+                  <span className="text-[9px] font-mono text-[#D4FF00] tracking-widest block uppercase font-black">WeChat Share & Organize</span>
+                  <h4 className="text-white text-md font-black tracking-tight truncate mt-0.5">
+                    {lessons.find(l => l.id === activeActionsLessonId)?.title}
+                  </h4>
+                </div>
+                
+                <div className="space-y-3">
+                  <button 
+                    onClick={() => {
+                      playSynthBeep('click');
+                      setShowShareModal('doc');
+                    }}
+                    className="w-full py-4 px-4 bg-zinc-900 border border-white/5 rounded-2xl flex items-center justify-between text-left hover:bg-neutral-850 active:scale-98 transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-white text-xs font-black block">微信高光思维文档分享 (Syllabus Poster)</span>
+                        <span className="text-zinc-500 text-[9px] font-medium block mt-0.5">带智能物归原位以及破译 Logo 的高清结构化单词句子思维库图</span>
+                      </div>
                     </div>
-                  ));
+                    <ChevronRight className="w-4 h-4 text-zinc-655" />
+                  </button>
+
+                  <button 
+                    onClick={(e) => {
+                      playSynthBeep('block');
+                      deleteLesson(activeActionsLessonId, e);
+                      setActiveActionsLessonId(null);
+                    }}
+                    className="w-full py-4 px-4 bg-rose-500/5 hover:bg-rose-550/15 border border-rose-500/15 rounded-2xl flex items-center justify-between text-left active:scale-98 transition-all"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center border border-rose-500/20">
+                        <Trash2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-rose-400 text-xs font-black block">从语感岛彻底废弃此块 (Delete Block)</span>
+                        <span className="text-rose-500/50 text-[9px] font-medium block mt-0.5">永久删除此课程/电子书高光以及所有转录词包</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-rose-800" />
+                  </button>
+                </div>
+
+                <button 
+                  onClick={() => setActiveActionsLessonId(null)}
+                  className="w-full mt-6 py-3.5 bg-zinc-950 hover:bg-neutral-900 rounded-xl text-neutral-400 hover:text-white text-xs font-bold border border-white/5"
+                >
+                  取消
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* WeChat Shares Modal Poster Overlays */}
+        <AnimatePresence>
+          {showShareModal && activeActionsLessonId && (
+            <motion.div 
+              className="fixed inset-0 bg-black/90 backdrop-blur-md z-[110] flex items-center justify-center p-5 overflow-y-auto no-scrollbar font-sans"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="absolute top-4 right-4 z-50">
+                <button 
+                  onClick={() => { playSynthBeep('click'); setShowShareModal(null); }}
+                  className="w-10 h-10 rounded-full bg-white/10 border border-white/10 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Poster frame */}
+              <div className="w-full max-w-sm bg-[#09090b] border border-[#D4FF00]/20 rounded-[2.5rem] p-6 shadow-[0_0_40px_rgba(212,255,0,0.1)] relative overflow-hidden flex flex-col justify-between my-auto">
+                <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-500 via-[#D4FF00] to-cyan-500" />
+                
+                {showShareModal === 'speak' ? (
+                  /* Speak Challenge Poster */
+                  <div>
+                    {/* Header Logo & traceback branding */}
+                    <div className="flex justify-between items-center pb-4 mb-4 border-b border-white/5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-6 h-6 rounded-lg bg-[#D4FF00] text-black flex items-center justify-center text-[10px] font-black">L</div>
+                        <span className="text-white text-xs font-black tracking-tight">Lingua 语感岛®</span>
+                      </div>
+                      <span className="text-[8px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-black tracking-wider uppercase">Moments Challenge</span>
+                    </div>
+
+                    <div className="mb-4">
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold leading-none">源于精读频道</span>
+                      <h4 className="text-white text-base font-black truncate leading-tight mt-1">
+                        {lessons.find(l => l.id === activeActionsLessonId)?.title}
+                      </h4>
+                      <p className="text-neutral-500 text-[10px] mt-1">微信扫码或长按卡片在小程序中进行语感发音破译打分挑战</p>
+                    </div>
+
+                    {/* 3 Select speech sentences challenger lists */}
+                    <div className="space-y-3 my-4 bg-zinc-950 p-4 rounded-3xl border border-white/5">
+                      <span className="text-[8px] text-[#D4FF00] font-mono uppercase tracking-widest font-black block mb-1">🔥 黄金片段跟读推荐 (Top 3 Sentences)</span>
+                      
+                      {(() => {
+                        const lessonObj = lessons.find(l => l.id === activeActionsLessonId);
+                        const topSentences = lessonObj?.sentences.slice(0, 3) || [];
+                        if (topSentences.length === 0) {
+                          return <div className="text-zinc-600 text-xs py-2">无句法数据</div>;
+                        }
+                        return topSentences.map((s, idx) => (
+                          <div key={s.id} className="p-2.5 rounded-xl bg-neutral-900 border border-white/5 relative overflow-hidden group">
+                            <span className="absolute right-2 top-2 text-[9px] font-mono text-zinc-600 font-black">SQ-{idx+1}</span>
+                            <p className="text-white text-xs font-medium leading-relaxed pr-8 font-sans">"{s.text}"</p>
+                            
+                            <div className="flex items-center justify-between border-t border-white/5 pt-2 mt-2">
+                              <span className="text-zinc-500 text-[8.5px] leading-none truncate max-w-[150px]">{s.translation}</span>
+                              <div className="flex gap-1.5 shrink-0">
+                                <span className="text-[8px] font-mono bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-black">打分 98pts</span>
+                                <Mic className="w-3 h-3 text-[#D4FF00]" />
+                              </div>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+
+                    {/* QR Code and platform trace back footer */}
+                    <div className="mt-5 flex items-center justify-between gap-4 border-t border-white/5 pt-4 bg-[#111113]/40 p-4 rounded-3xl">
+                      <div className="overflow-hidden">
+                        <span className="text-white text-[11px] font-black block">Lingua 语感破译分析</span>
+                        <span className="text-zinc-500 text-[8.5px] block leading-relaxed mt-1">
+                          此片段已由微信用户分享。跟读完成后由高级 TTS 核心打分，自动记录于该用户的 **“语感瀑布流”** 中持续迭代。
+                        </span>
+                      </div>
+                      
+                      {/* Fake polished vector QR Code illustration */}
+                      <div className="w-16 h-16 shrink-0 rounded-xl bg-white p-1 flex flex-col justify-between items-center relative overflow-hidden shadow-lg select-none">
+                        <div className="grid grid-cols-4 gap-0.5 w-full h-full opacity-90">
+                          {Array.from({ length: 16 }).map((_, i) => (
+                            <div 
+                              key={i} 
+                              className={`rounded-sm ${
+                                (i % 3 === 0 || i === 0 || i === 15 || i === 5 || i === 10) 
+                                ? "bg-black" : "bg-neutral-100"
+                              }`} 
+                            />
+                          ))}
+                        </div>
+                        <span className="absolute bottom-1 bg-[#D4FF00] text-black text-[6.5px] px-1 font-mono uppercase font-black tracking-tighter leading-none rounded">LINGUA</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Documents Share Poster */
+                  <div>
+                    {/* Header Logo & traceback branding */}
+                    <div className="flex justify-between items-center pb-4 mb-4 border-b border-white/5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-6 h-6 rounded-lg bg-cyan-400 text-black flex items-center justify-center text-[10px] font-black font-sans">島</div>
+                        <span className="text-white text-xs font-black tracking-tight">Lingua 语感岛®</span>
+                      </div>
+                      <span className="text-[8px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 font-black tracking-wider uppercase">Neural Syllabus</span>
+                    </div>
+
+                    <div className="mb-4">
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold leading-none">结构化文档知识库</span>
+                      <h4 className="text-white text-base font-black truncate leading-tight mt-1">
+                        {lessons.find(l => l.id === activeActionsLessonId)?.title}
+                      </h4>
+                      <p className="text-cyan-400/80 text-[10px] mt-1 font-mono uppercase">已破译 24 个生词 • 3 组句型思维结构</p>
+                    </div>
+
+                    {/* Brief document vocabulary teaser breakdown lists */}
+                    <div className="my-4 bg-zinc-950 p-4 rounded-3xl border border-white/5 space-y-3">
+                      <span className="text-[8px] text-cyan-400 font-mono uppercase tracking-widest font-black block mb-1">📁 生词与破译卡 (Knowledge Base Teaser)</span>
+                      
+                      <div className="space-y-2">
+                        {vocabularies.slice(0, 3).map((vocab, vIdx) => (
+                          <div key={vIdx} className="flex justify-between items-center p-2 rounded-xl bg-neutral-900 border border-white/5">
+                            <div className="overflow-hidden">
+                              <span className="text-[#D4FF00] text-[11px] font-mono font-black block">{vocab.word}</span>
+                              <span className="text-zinc-500 text-[9px] block leading-none truncate max-w-[180px] mt-1">{vocab.exampleCn || "上下文高光释义"}</span>
+                            </div>
+                            <span className="text-white text-[10px] font-bold bg-white/5 px-2.5 py-1 rounded shrink-0">
+                              {vocab.definitionCn}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* QR Code and platform trace back footer */}
+                    <div className="mt-5 flex items-center justify-between gap-4 border-t border-white/5 pt-4 bg-[#111113]/40 p-4 rounded-3xl">
+                      <div className="overflow-hidden">
+                        <span className="text-white text-[11px] font-black block">专属高光文档归档</span>
+                        <span className="text-zinc-500 text-[8.5px] block leading-relaxed mt-1">
+                          扫码同步此定制电子书/流媒体转录所得的生词瀑布、发音解构。新用户扫码自动解锁 **7 天高级禅庭订阅**。
+                        </span>
+                      </div>
+                      
+                      {/* Fake polished vector QR Code illustration */}
+                      <div className="w-16 h-16 shrink-0 rounded-xl bg-white p-1 flex flex-col justify-between items-center relative overflow-hidden shadow-lg select-none">
+                        <div className="grid grid-cols-4 gap-0.5 w-full h-full opacity-90">
+                          {Array.from({ length: 16 }).map((_, i) => (
+                            <div 
+                              key={i} 
+                              className={`rounded-sm ${
+                                (i % 3 === 0 || i === 0 || i === 15 || i === 5 || i === 10) 
+                                ? "bg-black" : "bg-neutral-100"
+                              }`} 
+                            />
+                          ))}
+                        </div>
+                        <span className="absolute bottom-1 bg-[#D4FF00] text-black text-[6.5px] px-1 font-mono uppercase font-black tracking-tighter leading-none rounded">LINGUA</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  onClick={() => { playSynthBeep('click'); setShowShareModal(null); }}
+                  className="w-full mt-6 py-3.5 bg-[#D4FF00] hover:bg-[#b0d400] text-black rounded-2xl text-xs font-black transition-all"
+                >
+                  保存并推送到微信
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Unified "复习闪卡" Workspace Modal */}
+        <AnimatePresence>
+          {showFlashcardSpace && (
+            <motion.div 
+              className="fixed inset-0 bg-[#070709] z-[120] flex flex-col justify-between p-5 font-sans"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(212,255,0,0.06),transparent)] pointer-events-none" />
+              
+              {/* Header block with close and progress */}
+              <div className="relative z-10 flex justify-between items-center py-2.5 border-b border-white/5">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#D4FF00] animate-pulse shadow-[0_0_8px_#D4FF00]" />
+                  <div>
+                    <h3 className="text-sm font-black text-white tracking-widest uppercase font-mono">复习闪卡 SPACED STUDY</h3>
+                    <span className="text-[9px] text-zinc-500 font-mono tracking-widest block font-black uppercase mt-0.5">
+                      PROGRESS: {getReviewQueue().length ? Math.min(currentFlashcardIndex, getReviewQueue().length) : 0} / {getReviewQueue().length}
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { playSynthBeep('click'); setShowFlashcardSpace(false); }}
+                  className="w-9 h-9 rounded-full bg-[#111113] border border-white/5 hover:border-white/20 flex items-center justify-center text-zinc-400 hover:text-white transition-all active:scale-90"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Central Main Interactive Area */}
+              <div className="flex-1 flex flex-col justify-center py-6">
+                {(() => {
+                  const deck = getReviewQueue();
+                  const isFinished = currentFlashcardIndex >= deck.length;
+                  
+                  if (isFinished) {
+                    return (
+                      <motion.div 
+                        className="w-full max-w-sm mx-auto bg-[#111113]/50 border border-emerald-500/20 rounded-[2.5rem] p-8 text-center shadow-2xl relative overflow-hidden flex flex-col items-center gap-5 justify-center py-12"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                      >
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 filter blur-3xl rounded-full" />
+                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400 mb-2">
+                          <span className="text-3xl font-bold">🎉</span>
+                        </div>
+                        <div>
+                          <h4 className="text-white text-xl font-black mb-1">今日复习目标达成！</h4>
+                          <p className="text-zinc-500 text-xs">您已完美标注了今日所有的闪卡记忆节点，语感网格再次得到了强化。</p>
+                        </div>
+                        
+                        <div className="w-full space-y-2 mt-4">
+                          <button 
+                            onClick={() => {
+                              playSynthBeep('success');
+                              setCurrentFlashcardIndex(0);
+                            }}
+                            className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 border border-white/10 rounded-2xl text-xs font-black text-white hover:text-[#D4FF00] transition-colors"
+                          >
+                            🔄 重新开始本轮复习
+                          </button>
+                          <button 
+                            onClick={() => {
+                              playSynthBeep('click');
+                              setShowFlashcardSpace(false);
+                            }}
+                            className="w-full py-3.5 bg-[#D4FF00] hover:bg-[#cbf500] text-black rounded-2xl text-xs font-black transition-transform active:scale-95"
+                          >
+                            退出闪卡空间 Close
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  }
+
+                  const item = deck[currentFlashcardIndex];
+                  return (
+                    <motion.div 
+                      className="w-full max-w-sm mx-auto flex flex-col gap-6"
+                      key={item.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                    >
+                      {/* Active Flashcard Block */}
+                      <div 
+                        onClick={() => {
+                          if (!isCardRevealed) {
+                            playSynthBeep('click');
+                            setIsCardRevealed(true);
+                          }
+                        }}
+                        className={`w-full bg-[#111113] border transition-all cursor-pointer rounded-[2.5rem] p-6 shadow-[0_20px_50px_rgba(0,0,0,0.6)] min-h-[300px] flex flex-col justify-between relative overflow-hidden ${isCardRevealed ? "border-zinc-700" : "border-[#D4FF00]/40 bg-zinc-950 hover:border-[#D4FF00]/70"}`}
+                      >
+                        {/* Pulse glow background if not revealed */}
+                        {!isCardRevealed && (
+                          <div className="absolute top-0 right-0 w-36 h-36 bg-[#D4FF00]/5 filter blur-3xl rounded-full" />
+                        )}
+
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] font-mono font-bold text-[#D4FF00] tracking-widest uppercase bg-[#D4FF00]/10 px-2.5 py-0.5 rounded">
+                            {item.type === 'word' ? `生词 • ${item.partOfSpeech || 'VOCAB'}` : '高光金句 • SENTENCE'}
+                          </span>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playSynthBeep('click');
+                              speakTextEn(item.type === 'word' ? item.word! : item.text!);
+                            }}
+                            className="w-8 h-8 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-[#D4FF00] active:scale-90"
+                            title="原声朗读 Speak"
+                          >
+                            <Volume2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Text Center focus */}
+                        <div className="my-auto py-4 flex flex-col items-center">
+                          {item.type === 'word' ? (
+                            <div className="space-y-1">
+                              <h2 className="text-white text-3xl font-black font-sans tracking-tight leading-none text-center select-text">
+                                {item.word}
+                              </h2>
+                              {isCardRevealed && (
+                                <p className="text-neutral-500 font-mono text-center text-xs mt-1">
+                                  [{item.phonetic}]
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-white text-[15px] font-bold leading-relaxed text-center font-sans select-text px-2">
+                              "{item.text}"
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Translation revelation zone */}
+                        <div className="border-t border-white/5 pt-4">
+                          {isCardRevealed ? (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="text-center space-y-3"
+                            >
+                              <p className="text-white text-sm font-black font-mono leading-relaxed bg-[#D4FF00]/5 py-2 px-4 rounded-xl border border-[#D4FF00]/25">
+                                {item.type === 'word' ? item.definitionCn : item.translationCn}
+                              </p>
+                              {item.type === 'word' && item.example && (
+                                <p className="text-zinc-500 text-[10.5px] italic text-left leading-normal bg-black/40 p-2.5 rounded-lg border border-white/[0.02]">
+                                  "{item.example}"
+                                </p>
+                              )}
+                            </motion.div>
+                          ) : (
+                            <div className="flex flex-col items-center py-2">
+                              <span className="text-[10px] font-bold text-[#D4FF00] tracking-widest uppercase flex items-center gap-1 opacity-70 animate-pulse">
+                                👆 点击卡片翻面显现释义 REVEAL CARD
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Memory Situation Marking buttons at lower card */}
+                      <div className="space-y-3">
+                        <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest font-black block text-center">
+                          请诚实标注卡片的记忆状况 MARK MEMORY STATE
+                        </span>
+                        
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <button 
+                            onClick={() => handleRecallStatus('forget')}
+                            className="bg-red-500/10 hover:bg-red-500/20 active:scale-95 transition-all text-red-400 border border-red-500/30 font-black text-xs py-3 rounded-2xl flex flex-col items-center justify-center gap-1"
+                          >
+                            <span className="text-lg">🔴</span>
+                            <span>未掌握/忘记</span>
+                          </button>
+                          
+                          <button 
+                            onClick={() => handleRecallStatus('vague')}
+                            className="bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 transition-all text-amber-400 border border-amber-500/30 font-black text-xs py-3 rounded-2xl flex flex-col items-center justify-center gap-1"
+                          >
+                            <span className="text-lg">🟡</span>
+                            <span>记不清/模糊</span>
+                          </button>
+
+                          <button 
+                            onClick={() => handleRecallStatus('remember')}
+                            className="bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 transition-all text-emerald-400 border border-emerald-500/30 font-black text-xs py-3 rounded-2xl flex flex-col items-center justify-center gap-1"
+                          >
+                            <span className="text-lg">🟢</span>
+                            <span>已掌握/牢记</span>
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })()}
+              </div>
+
+              {/* Progress track timeline progress bar at modal bottom footer */}
+              <div className="relative pt-4 border-t border-white/5">
+                {(() => {
+                  const deck = getReviewQueue();
+                  const pct = deck.length ? (Math.min(currentFlashcardIndex, deck.length) / deck.length) * 100 : 0;
+                  return (
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-black shrink-0">
+                        IMMERSION LOOP ACTIVE
+                      </span>
+                      <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-[#D4FF00] rounded-full transition-all duration-300"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-[#D4FF00] font-black shrink-0">
+                        {Math.round(pct)}%
+                      </span>
+                    </div>
+                  );
                 })()}
               </div>
             </motion.div>
@@ -3540,91 +4954,163 @@ export default function App() {
               exit={{ opacity: 0 }}
             >
               <motion.div 
-                className="w-full max-w-sm bg-[#0c0c0e] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden"
+                className="w-full max-w-sm bg-[#0c0c0e]/95 border border-white/10 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden font-sans"
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.9, y: 20 }}
               >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4FF00]/5 filter blur-3xl rounded-full" />
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 filter blur-3xl rounded-full" />
                 
-                <h3 className="text-xl font-black text-white flex items-center gap-2 mb-1.5">
-                  <MessageCircle className="w-5 h-5 text-emerald-400" /> 微信极速登录
-                </h3>
-                <p className="text-zinc-500 text-xs mb-6">绑定手机号，完成全平台云端数据实时同步防丢失</p>
-
-                <div className="space-y-4">
-                  {/* Phone Input */}
-                  <div>
-                    <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-bold mb-1.5 block">手机号码 Phone Number</label>
-                    <input 
-                      type="tel"
-                      value={loginPhone}
-                      onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                      placeholder="11 位中国大陆手机号"
-                      className="w-full bg-zinc-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#D4FF00] font-mono"
-                    />
+                {/* WeChat brand Header */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/25">
+                    <MessageCircle className="w-5.5 h-5.5 text-emerald-400 fill-emerald-400/20" />
                   </div>
-
-                  {/* Verification Code */}
                   <div>
-                    <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-bold mb-1.5 block">短信验证码 verification code</label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        value={loginCode}
-                        onChange={(e) => setLoginCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="6 位验证码"
-                        className="flex-1 bg-zinc-950 border border-neutral-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#D4FF00] font-mono"
-                      />
-                      <button 
-                        onClick={() => {
-                          if (loginPhone.length < 11) {
-                            playSynthBeep('block');
-                            setApiErrorMessage("请输入完整的 11 位手机号码");
-                            return;
-                          }
-                          playSynthBeep('click');
-                          setIsCodeSent(true);
-                          setCodeCountdown(60);
-                        }}
-                        disabled={codeCountdown > 0 || loginPhone.length < 11}
-                        className="px-3.5 py-3 rounded-xl text-xs font-bold bg-[#D4FF00] text-black hover:bg-[#cbf500] disabled:bg-neutral-900 disabled:text-zinc-500 disabled:border disabled:border-neutral-800 transition-colors shrink-0"
-                      >
-                        {codeCountdown > 0 ? `${codeCountdown}s` : "获取验证码"}
-                      </button>
+                    <h3 className="text-base font-black text-white tracking-tight">微信一键授权登录</h3>
+                    <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest block font-black mt-0.5">WECHAT SECURE AUTHENTICATION</span>
+                  </div>
+                </div>
+
+                {/* Secure sync user prompt warning */}
+                <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-2xl p-3.5 mb-5 text-[11px] text-emerald-300 leading-relaxed flex gap-2.5 items-start">
+                  <span className="text-base shrink-0 select-none">🐾</span>
+                  <p>
+                    {loginRequiredReason || "为了保证您的专属听写本、音视频导入历史及学习生词库在多端可以长期安全地云端存储不丢失，请完成极速授权。"}
+                  </p>
+                </div>
+
+                {/* Mock WeChat OAuth visual sheet */}
+                <div className="space-y-4">
+                  <div className="bg-zinc-950 p-4 border border-white/5 rounded-2xl">
+                    <span className="text-[9.5px] font-mono text-zinc-500 uppercase tracking-widest font-black block mb-3">申请获取以下公开权限</span>
+                    <span className="text-xs text-zinc-300 font-extrabold block mb-4">获得您的公开信息（昵称、头像、地区及性别）</span>
+                    
+                    {/* User profile check item */}
+                    <div className="flex items-center justify-between p-3 bg-neutral-900/60 border border-emerald-500/30 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <img 
+                          src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" 
+                          alt="Avatar" 
+                          className="w-11 h-11 rounded-full border border-white/10 object-cover shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="overflow-hidden">
+                          <input 
+                            type="text"
+                            value={wechatNickname}
+                            onChange={(e) => setWechatNickname(e.target.value.slice(0, 15))}
+                            placeholder="自定义微信昵称..."
+                            className="bg-transparent border-b border-zinc-700 focus:border-emerald-400 text-xs text-white font-black py-0.5 focus:outline-none w-full"
+                          />
+                          <span className="text-[9px] text-zinc-500 block mt-1">支持编辑个人微信公开昵称</span>
+                        </div>
+                      </div>
+                      <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-black font-black text-xs shrink-0 select-none">
+                        ✓
+                      </div>
                     </div>
                   </div>
 
-                  {/* Bound Action buttons */}
-                  <div className="flex gap-2.5 pt-4">
+                  {/* Optional phone binding section */}
+                  <div className="bg-zinc-950/60 p-4 border border-white/5 rounded-2xl space-y-3.5">
+                    <label className="flex items-center gap-2 cursor-pointer py-1 select-none">
+                      <input 
+                        type="checkbox"
+                        checked={bindPhoneChecked}
+                        onChange={(e) => {
+                          playSynthBeep('click');
+                          setBindPhoneChecked(e.target.checked);
+                        }}
+                        className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-neutral-900 border-neutral-800"
+                      />
+                      <span className="text-xs text-zinc-400 font-extrabold">绑定手机号 (选填，开通多端验证同步后备)</span>
+                    </label>
+
+                    {bindPhoneChecked && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-3 overflow-hidden pt-1 border-t border-white/5"
+                      >
+                        {/* Phone input */}
+                        <div>
+                          <input 
+                            type="tel"
+                            value={loginPhone}
+                            onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                            placeholder="请输入 11 位大陆手机号"
+                            className="w-full bg-zinc-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 font-mono font-bold"
+                          />
+                        </div>
+
+                        {/* Verification code input */}
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            value={loginCode}
+                            onChange={(e) => setLoginCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="6 位短信验证码"
+                            className="flex-1 bg-zinc-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-400 font-mono font-bold"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (loginPhone.length < 11) {
+                                playSynthBeep('block');
+                                setApiErrorMessage("请输入完整的 11 位手机号码");
+                                return;
+                              }
+                              playSynthBeep('click');
+                              setIsCodeSent(true);
+                              setCodeCountdown(60);
+                            }}
+                            disabled={codeCountdown > 0 || loginPhone.length < 11}
+                            className="px-3 py-2.5 rounded-xl text-[10px] font-bold bg-[#D4FF00] text-black hover:bg-[#cbf500] disabled:bg-neutral-900 disabled:text-zinc-500 disabled:border disabled:border-neutral-800 transition-colors shrink-0 font-sans"
+                          >
+                            {codeCountdown > 0 ? `${codeCountdown}s` : "获取验证码"}
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Auth decision buttons */}
+                  <div className="flex gap-3 pt-3">
                     <button 
                       onClick={() => { playSynthBeep('click'); setShowLoginModal(false); }}
-                      className="flex-1 bg-neutral-950 text-zinc-400 hover:text-white border border-neutral-850 py-3.5 rounded-2xl text-xs font-bold transition-colors"
+                      className="flex-1 bg-neutral-950 text-zinc-400 hover:text-white border border-neutral-850 py-3.5 rounded-2xl text-xs font-black transition-colors"
                     >
-                      取消
+                      拒绝
                     </button>
                     <button 
                       onClick={() => {
-                        if (loginPhone.length < 11) {
-                          playSynthBeep('block');
-                          setApiErrorMessage("请输入完整的 11 位手机号码");
-                          return;
+                        if (bindPhoneChecked) {
+                          if (loginPhone.length < 11) {
+                            playSynthBeep('block');
+                            setApiErrorMessage("请填写正确的 11 位手机号码以进行关联绑定。");
+                            return;
+                          }
+                          if (loginCode.length < 4) {
+                            playSynthBeep('block');
+                            setApiErrorMessage("请输入手机收到的短信验证码。");
+                            return;
+                          }
+                          localStorage.setItem("lingua_user_phone", loginPhone);
                         }
-                        if (loginCode.length < 4) {
-                          playSynthBeep('block');
-                          setApiErrorMessage("请输入验证码");
-                          return;
-                        }
+                        
                         playSynthBeep('success');
                         setIsWechatBound(true);
                         localStorage.setItem("lingua_wechat_bound", "true");
+                        localStorage.setItem("lingua_wechat_nickname", wechatNickname);
                         setShowLoginModal(false);
                         setShowRewardParticles(true);
                         setTimeout(() => setShowRewardParticles(false), 2000);
                       }}
-                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3.5 rounded-2xl text-xs font-bold flex justify-center items-center gap-1 active:scale-95 transition-transform shadow-lg shadow-emerald-950/40"
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3.5 rounded-2xl text-xs flex justify-center items-center gap-1.5 active:scale-95 transition-transform shadow-lg shadow-emerald-950/40"
                     >
-                      <span>绑定并登录</span>
+                      <span>允许授权登录</span>
                     </button>
                   </div>
                 </div>
@@ -3686,28 +5172,69 @@ export default function App() {
                     </div>
 
                     {/* Choose plan */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2.5">
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-black block pl-0.5">选择会员订阅方案</span>
+                      
+                      {/* Weekly Tier */}
                       <button 
-                        onClick={() => { playSynthBeep('click'); setSelectedPaymentTier('monthly'); }}
-                        className={`p-4 rounded-2xl text-left border flex flex-col justify-between transition-all ${selectedPaymentTier === 'monthly' ? "bg-amber-400/10 border-amber-400" : "bg-neutral-900/60 border-white/5 text-zinc-400 hover:border-zinc-850"}`}
+                        onClick={() => { playSynthBeep('click'); setSelectedPaymentTier('weekly'); }}
+                        className={`w-full p-4 rounded-2xl text-left border flex items-center justify-between transition-all ${selectedPaymentTier === 'weekly' ? "bg-amber-400/10 border-amber-400" : "bg-[#111113] border-white/5 text-zinc-400 hover:border-zinc-800"}`}
                       >
                         <div>
-                          <span className={`text-[9px] font-mono font-black uppercase block ${selectedPaymentTier === 'monthly' ? "text-amber-400" : "text-zinc-500"}`}>Monthly Pass</span>
-                          <span className="text-white text-sm font-black block mt-1">月度极简特权</span>
+                          <span className={`text-[8px] font-mono font-black uppercase block ${selectedPaymentTier === 'weekly' ? "text-amber-400" : "text-zinc-500"}`}>Weekly Access</span>
+                          <span className="text-white text-xs font-black block mt-0.5">周卡特权</span>
                         </div>
-                        <span className="text-white font-mono text-base font-black mt-4">¥19.00 <span className="text-[10px] font-sans font-normal text-zinc-500">/ 月</span></span>
+                        <span className="text-white font-mono text-sm font-black">¥7.00 <span className="text-[9px] font-sans font-normal text-zinc-500">/ 周</span></span>
                       </button>
 
+                      {/* Monthly Tier with trial option */}
                       <button 
-                        onClick={() => { playSynthBeep('click'); setSelectedPaymentTier('lifetime'); }}
-                        className={`p-4 rounded-2xl text-left border flex flex-col justify-between transition-all relative overflow-hidden ${selectedPaymentTier === 'lifetime' ? "bg-amber-400/10 border-amber-400" : "bg-neutral-900/60 border-white/5 text-zinc-400 hover:border-zinc-850"}`}
+                        onClick={() => { playSynthBeep('click'); setSelectedPaymentTier('monthly'); }}
+                        className={`w-full p-4 rounded-2xl text-left border flex items-center justify-between transition-all relative overflow-hidden ${selectedPaymentTier === 'monthly' ? "bg-amber-400/10 border-amber-400" : "bg-[#111113] border-white/5 text-zinc-400 hover:border-zinc-800"}`}
                       >
-                        <div className="absolute top-0 right-0 bg-[#D4FF00] text-black text-[7px] font-black tracking-widest px-1.5 py-0.5 uppercase transform rotate-12 origin-top-right mt-1">SAVE</div>
+                        {isNewUserWithinOneMonth() && (
+                          <div className="absolute top-0 right-0 bg-red-500 text-white text-[6px] font-black tracking-widest px-1.5 py-0.5 uppercase transform rotate-12 origin-top-right mt-1.5 mr-1 scale-90">TRIAL</div>
+                        )}
                         <div>
-                          <span className={`text-[9px] font-mono font-black uppercase block ${selectedPaymentTier === 'lifetime' ? "text-amber-400" : "text-zinc-500"}`}>Lifetime VIP</span>
-                          <span className="text-white text-sm font-black block mt-1">年度终身无忧</span>
+                          <span className={`text-[8px] font-mono font-black uppercase block ${selectedPaymentTier === 'monthly' ? "text-amber-400" : "text-zinc-500"}`}>Monthly Pass</span>
+                          <span className="text-white text-xs font-black block mt-0.5">月度特权</span>
+                          {isNewUserWithinOneMonth() && (
+                            <span className="text-amber-400 font-sans text-[8px] block mt-0.5">★ 新用户首周 ¥0.90 试用</span>
+                          )}
                         </div>
-                        <span className="text-white font-mono text-base font-black mt-4">¥129.00 <span className="text-[10px] font-sans font-normal text-zinc-500">/ 年</span></span>
+                        <div className="text-right">
+                          <span className="text-white font-mono text-sm font-black block">
+                            {isNewUserWithinOneMonth() ? "¥0.90" : "¥19.90"}
+                          </span>
+                          <span className="text-[9px] text-zinc-500 block">
+                            {isNewUserWithinOneMonth() ? "首周, 后续 ¥19.9/月" : "/ 月"}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Yearly Tier with trial option */}
+                      <button 
+                        onClick={() => { playSynthBeep('click'); setSelectedPaymentTier('yearly'); }}
+                        className={`w-full p-4 rounded-2xl text-left border flex items-center justify-between transition-all relative overflow-hidden ${selectedPaymentTier === 'yearly' ? "bg-amber-400/10 border-amber-400" : "bg-[#111113] border-white/5 text-zinc-400 hover:border-zinc-800"}`}
+                      >
+                        {isNewUserWithinOneMonth() && (
+                          <div className="absolute top-0 right-0 bg-[#D4FF00] text-black text-[6px] font-black tracking-widest px-1.5 py-0.5 uppercase transform rotate-12 origin-top-right mt-1.5 mr-1 scale-90">HOT</div>
+                        )}
+                        <div>
+                          <span className={`text-[8px] font-mono font-black uppercase block ${selectedPaymentTier === 'yearly' ? "text-amber-400" : "text-zinc-500"}`}>Yearly Pass</span>
+                          <span className="text-white text-xs font-black block mt-0.5">年卡尊享特权</span>
+                          {isNewUserWithinOneMonth() && (
+                            <span className="text-[#D4FF00] font-sans text-[8px] block mt-0.5">★ 新用户首周 ¥0.09 试用</span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-white font-mono text-sm font-black block">
+                            {isNewUserWithinOneMonth() ? "¥0.09" : "¥168.00"}
+                          </span>
+                          <span className="text-[9px] text-zinc-500 block">
+                            {isNewUserWithinOneMonth() ? "首周, 后续 ¥168/年" : "/ 年"}
+                          </span>
+                        </div>
                       </button>
                     </div>
 
@@ -3739,7 +5266,15 @@ export default function App() {
 
                     <div className="mt-4 text-center select-none">
                       <span className="text-xs font-mono text-zinc-400 block font-bold">请使用微信扫码完成支付</span>
-                      <span className="text-[10px] text-zinc-500 block mt-1">订单金额: ¥{selectedPaymentTier === 'monthly' ? "19.00" : "129.00"} (沙盒安全测试模式)</span>
+                      <span className="text-[10px] text-zinc-500 block mt-1">
+                        订单金额: ¥{
+                          selectedPaymentTier === 'weekly' 
+                            ? "7.00" 
+                            : selectedPaymentTier === 'monthly'
+                              ? (isNewUserWithinOneMonth() ? "0.90" : "19.90")
+                              : (isNewUserWithinOneMonth() ? "0.09" : "168.00")
+                        } (沙盒安全测试模式)
+                      </span>
                     </div>
 
                     <button 
