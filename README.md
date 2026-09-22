@@ -1,36 +1,36 @@
-# Lingua AIOS
+# Kingua AIOS
 
-极具未来科技感的脉冲式无痛沉浸英语学习破译中枢（赛博版）——基于 Google AI Studio 构建的 AI 英语学习应用：麦克风输入 + Gemini 服务端能力 + 脉冲式沉浸交互。
+A futuristic, pulse-style immersive English-learning AI app (cyber edition) — built on Google AI Studio: microphone input + Gemini server-side capabilities + a pulsing immersive interaction design.
 
-在 AI Studio 中查看/编辑：[ai.studio/apps/0b80d204-baa8-4f74-9a36-dea4da8dede8](https://ai.studio/apps/0b80d204-baa8-4f74-9a36-dea4da8dede8)
+View/edit in AI Studio: [ai.studio/apps/0b80d204-baa8-4f74-9a36-dea4da8dede8](https://ai.studio/apps/0b80d204-baa8-4f74-9a36-dea4da8dede8)
 
-## 能力
+## Capabilities
 
-- 麦克风实时输入（需要浏览器授予麦克风权限）
-- Gemini 服务端 API 驱动（`MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API`）
-- 脉冲式沉浸交互视觉
+- Real-time microphone input (browser microphone permission required)
+- Powered by the Gemini server-side API (`MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API`)
+- Pulse-style immersive interaction visuals
 
-## 快速开始
+## Quick Start
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 配置
+## Configuration
 
-在 AI Studio 的 Secrets 面板中配置 `GEMINI_API_KEY`（运行时自动注入，见 `.env.example` 字段说明）。部署后应用通过 Cloud Run 服务地址访问。
+Set `GEMINI_API_KEY` in the AI Studio Secrets panel (injected automatically at runtime; see `.env.example` for the field descriptions). Once deployed, the app is served from its Cloud Run URL.
 
-## 结构
+## Layout
 
 ```
-src/            前端源码
-server.ts       服务端（Gemini API 调用）
-assets/         静态资源
-metadata.json   AI Studio 应用元数据
+src/            frontend source
+server.ts       server (Gemini API calls)
+assets/         static assets
+metadata.json   AI Studio app metadata
 ```
 
-## 隐私
+## Privacy
 
-- 服务端持有 Gemini API 密钥，客户端不接触密钥
-- 麦克风内容仅用于当次 AI 交互，不做本地留存
+- The Gemini API key lives server-side; clients never touch it
+- Microphone content is used only for the current AI interaction and is never stored locally
